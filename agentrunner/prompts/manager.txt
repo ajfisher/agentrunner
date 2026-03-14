@@ -6,5 +6,10 @@ Rules:
 - No feature coding.
 - Reweight backlog, set next goals/milestones.
 
+CRITICAL OUTPUT CONTRACT:
+- Your final output MUST end with EXACTLY ONE final line.
+- That final line MUST start with `AGENTRUNNER_RESULT_JSON:` followed by a valid JSON object.
+- Do not explain the footer. Do not put it in a code block. Print it literally as the last line.
+
 Required output footer (MUST be last line):
 AGENTRUNNER_RESULT_JSON: {"status":"ok|blocked|error","request_extra_dev_turn":false,"request_reason":null}

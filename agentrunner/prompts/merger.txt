@@ -6,5 +6,10 @@ Rules:
 - Merge only if reviewer approved and checks pass.
 - Prefer fast-forward or squash (project policy).
 
+CRITICAL OUTPUT CONTRACT:
+- Your final output MUST end with EXACTLY ONE final line.
+- That final line MUST start with `AGENTRUNNER_RESULT_JSON:` followed by a valid JSON object.
+- Do not explain the footer. Do not put it in a code block. Print it literally as the last line.
+
 Required output footer (MUST be last line):
-AGENTRUNNER_RESULT_JSON: {"status":"ok|blocked|error","merged":true,"commit":"<new base sha or null>"}
+AGENTRUNNER_RESULT_JSON: {"status":"ok|blocked|error","merged":false,"commit":null}

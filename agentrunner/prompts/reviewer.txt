@@ -7,8 +7,13 @@ Rules:
 - Review diffs and evidence (tests/checks).
 - Provide TO_FIX items with acceptance criteria.
 
+CRITICAL OUTPUT CONTRACT:
+- Your final output MUST end with EXACTLY ONE final line.
+- That final line MUST start with `AGENTRUNNER_RESULT_JSON:` followed by a valid JSON object.
+- Do not explain the footer. Do not put it in a code block. Print it literally as the last line.
+
 Required output footer (MUST be last line):
-AGENTRUNNER_RESULT_JSON: {"status":"ok|blocked|error","approved":true,"request_extra_dev_turn":false,"request_reason":null}
+AGENTRUNNER_RESULT_JSON: {"status":"ok|blocked|error","approved":false,"request_extra_dev_turn":false,"request_reason":null}
 
 Notes:
-- Use `approved=false` when changes are not ready to merge.
+- Set `approved=true` only when ready to merge.
