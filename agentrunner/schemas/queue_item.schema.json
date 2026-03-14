@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "agentrunner queue item",
+  "type": "object",
+  "required": ["id", "project", "role", "createdAt"],
+  "properties": {
+    "id": {"type": "string"},
+    "project": {"type": "string"},
+    "role": {"type": "string", "enum": ["architect","developer","reviewer","manager","merger"]},
+    "createdAt": {"type": "string"},
+    "branch": {"type": ["string", "null"]},
+    "base": {"type": ["string", "null"], "default": "main"},
+    "goal": {"type": ["string", "null"]},
+    "constraints": {"type": "object", "additionalProperties": true},
+    "checks": {"type": "array", "items": {"type": "string"}},
+    "allowExtraDevTurn": {"type": "boolean", "default": true}
+  },
+  "additionalProperties": true
+}

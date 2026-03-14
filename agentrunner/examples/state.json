@@ -1,0 +1,7 @@
+{
+  "project": "picv_spike",
+  "running": false,
+  "updatedAt": "2026-03-14T00:00:00+11:00",
+  "current": null,
+  "limits": {"maxExtraDevTurns": 1}
+}

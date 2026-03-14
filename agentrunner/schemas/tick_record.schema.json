@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "agentrunner tick record",
+  "type": "object",
+  "required": ["ts", "project", "queueItemId", "role", "status"],
+  "properties": {
+    "ts": {"type": "string"},
+    "project": {"type": "string"},
+    "queueItemId": {"type": "string"},
+    "role": {"type": "string"},
+    "status": {"type": "string", "enum": ["ok","error","blocked","skipped"]},
+    "branch": {"type": ["string", "null"]},
+    "commit": {"type": ["string", "null"]},
+    "checks": {"type": "array", "items": {"type": "object"}},
+    "summary": {"type": ["string", "null"]}
+  },
+  "additionalProperties": true
+}

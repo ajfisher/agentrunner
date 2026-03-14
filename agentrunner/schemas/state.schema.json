@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "agentrunner state",
+  "type": "object",
+  "required": ["project", "running", "updatedAt"],
+  "properties": {
+    "project": {"type": "string"},
+    "running": {"type": "boolean"},
+    "updatedAt": {"type": "string", "description": "ISO8601"},
+    "current": {
+      "type": ["object", "null"],
+      "properties": {
+        "queueItemId": {"type": "string"},
+        "role": {"type": "string", "enum": ["architect","developer","reviewer","manager","merger"]},
+        "jobId": {"type": ["string", "null"]},
+        "startedAt": {"type": ["string", "null"]},
+        "lastHeartbeatAt": {"type": ["string", "null"]}
+      },
+      "additionalProperties": true
+    },
+    "limits": {
+      "type": "object",
+      "properties": {
+        "maxExtraDevTurns": {"type": "integer", "minimum": 0, "default": 1}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

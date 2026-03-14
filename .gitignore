@@ -1,0 +1,6 @@
+# Runtime state is not stored in this repo
+*.pyc
+__pycache__/
+.venv/
+venv/
+.DS_Store

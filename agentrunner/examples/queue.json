@@ -1,0 +1,13 @@
+[
+  {
+    "id": "example-001",
+    "project": "picv_spike",
+    "role": "architect",
+    "createdAt": "2026-03-14T00:00:00+11:00",
+    "branch": "feature/picv_spike/replay-mode",
+    "base": "main",
+    "goal": "Implement replay mode and update docs",
+    "checks": ["./check.sh"],
+    "constraints": {"timeboxMin": 8, "maxExtraDevTurns": 1}
+  }
+]
