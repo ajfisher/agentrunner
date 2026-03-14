@@ -24,3 +24,32 @@ Runtime state lives in **`/home/openclaw/.agentrunner/`** (one subdir per projec
 
 ## Next
 - Implement invoker: 1-minute supervisor that schedules one-shot OpenClaw cron jobs.
+
+## Scheduling bridge (implemented)
+
+`agentrunner/scripts/invoker.py` can now schedule OpenClaw **one-shot** cron jobs via:
+
+- `openclaw cron add --json --at <iso> --session isolated --message ...`
+
+### Example (manual)
+
+```bash
+mkdir -p /home/openclaw/.agentrunner/projects/picv_spike
+cp agentrunner/examples/state.json /home/openclaw/.agentrunner/projects/picv_spike/state.json
+cp agentrunner/examples/queue.json /home/openclaw/.agentrunner/projects/picv_spike/queue.json
+
+python3 agentrunner/scripts/invoker.py \
+  --project picv_spike \
+  --state-dir /home/openclaw/.agentrunner/projects/picv_spike \
+  --announce \
+  --channel discord \
+  --to channel:1477159463143084217
+```
+
+### System cron (supervisor)
+
+Run invoker every minute:
+
+```cron
+* * * * * /usr/bin/python3 /home/openclaw/projects/agentrunner/agentrunner/scripts/invoker.py --project picv_spike --state-dir /home/openclaw/.agentrunner/projects/picv_spike --announce --channel discord --to channel:1477159463143084217
+```
