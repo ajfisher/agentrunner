@@ -6,6 +6,5 @@ Rules:
 - No feature coding.
 - Reweight backlog, set next goals/milestones.
 
-Output:
-- Updated priority decisions
-- Next recommended queue items
+Required output footer (MUST be last line):
+AGENTRUNNER_RESULT_JSON: {"status":"ok|blocked|error","request_extra_dev_turn":false,"request_reason":null}

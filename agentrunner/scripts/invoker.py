@@ -11,6 +11,10 @@ Responsibilities:
 - Append a tick record to ticks.ndjson when a run finishes
 
 This keeps orchestration mechanics outside agent control.
+
+This invoker uses:
+- role prompt templates in `agentrunner/prompts/<role>.txt`
+- structured worker footer: `AGENTRUNNER_RESULT_JSON: {...}`
 """
 
 from __future__ import annotations
@@ -51,12 +55,16 @@ def run_cmd(cmd: list[str]) -> tuple[int, str, str]:
     return p.returncode, p.stdout, p.stderr
 
 
+def script_path(rel: str) -> str:
+    return os.path.join("/home/openclaw/projects/agentrunner", rel)
+
+
 def materialize_queue(state_dir: str) -> None:
     events = os.path.join(state_dir, "queue_events.ndjson")
     out = os.path.join(state_dir, "queue.json")
     if not os.path.exists(events):
         return
-    cmd = ["python3", "/home/openclaw/projects/agentrunner/agentrunner/scripts/queue_ledger.py", "--events", events, "--out", out]
+    cmd = ["python3", script_path("agentrunner/scripts/queue_ledger.py"), "--events", events, "--out", out]
     rc, out_s, err = run_cmd(cmd)
     if rc != 0:
         raise RuntimeError(f"queue materialize failed rc={rc} err={err.strip()} out={out_s.strip()}")
@@ -65,16 +73,10 @@ def materialize_queue(state_dir: str) -> None:
 def append_queue_event(state_dir: str, kind: str, *, item: dict | None = None, id: str | None = None, status: str | None = None) -> None:
     events = os.path.join(state_dir, "queue_events.ndjson")
     out = os.path.join(state_dir, "queue.json")
-    payload: dict = {"kind": kind}
-    if item is not None:
-        payload["item"] = item
-    if id is not None:
-        payload["id"] = id
-    if status is not None:
-        payload["status"] = status
+
     cmd = [
         "python3",
-        "/home/openclaw/projects/agentrunner/agentrunner/scripts/queue_ledger.py",
+        script_path("agentrunner/scripts/queue_ledger.py"),
         "--events",
         events,
         "--out",
@@ -99,7 +101,7 @@ def append_tick(state_dir: str, record: dict) -> None:
     ticks_path = os.path.join(state_dir, "ticks.ndjson")
     cmd = [
         "python3",
-        "/home/openclaw/projects/agentrunner/agentrunner/scripts/log_append.py",
+        script_path("agentrunner/scripts/log_append.py"),
         "--path",
         ticks_path,
         "--record",
@@ -110,18 +112,33 @@ def append_tick(state_dir: str, record: dict) -> None:
         raise RuntimeError(f"tick append failed rc={rc} err={err.strip()} out={out.strip()}")
 
 
+def load_role_prompt(role: str) -> str:
+    path = script_path(f"agentrunner/prompts/{role}.txt")
+    if not os.path.exists(path):
+        raise RuntimeError(f"missing role prompt template: {path}")
+    return open(path, "r", encoding="utf-8").read().strip() + "\n"
+
+
+def parse_result_footer(summary: str) -> dict | None:
+    cmd = ["python3", script_path("agentrunner/scripts/result_parser.py"), "--text", summary]
+    rc, out, err = run_cmd(cmd)
+    if rc == 0:
+        return json.loads(out)
+    return None
+
+
 def schedule_one_shot(queue_item: dict, *, at_iso: str, announce: bool, channel: str, to: str, timeout_seconds: int) -> str:
     name = f"agentrunner:{queue_item.get('project')}:{queue_item.get('role')}:{queue_item.get('id')}"
 
-    msg = (
-        "You are running under agentrunner (mechanics-driven).\n\n"
-        "You have ONE job: execute the queue item below.\n"
-        "- Follow role discipline (developer/reviewer/manager/merger/architect).\n"
-        "- Work only within the project repo path provided.\n"
-        "- If role=developer: commit changes to the specified branch; shipped==committed.\n"
-        "- Do not modify agentrunner state/queue/ticks directly.\n\n"
-        "QUEUE_ITEM_JSON:\n" + json.dumps(queue_item, indent=2, ensure_ascii=False)
+    role = str(queue_item.get("role"))
+    role_prompt = load_role_prompt(role)
+
+    header = (
+        "You are running under agentrunner (mechanics-driven).\n"
+        "The mechanics layer owns state/queue/logs; you MUST NOT modify them.\n\n"
     )
+
+    msg = header + role_prompt + "\nQUEUE_ITEM_JSON:\n" + json.dumps(queue_item, indent=2, ensure_ascii=False)
 
     cmd = [
         "openclaw",
@@ -186,29 +203,29 @@ def main() -> int:
     # Always materialize queue view if a ledger exists.
     materialize_queue(args.state_dir)
 
-    state = load_json(state_path, {"project": args.project, "running": False, "updatedAt": iso_now(), "current": None, "limits": {"maxExtraDevTurns": 1}})
+    state = load_json(state_path, {"project": args.project, "running": False, "updatedAt": iso_now(), "current": None, "limits": {"maxExtraDevTurns": 1}, "runtime": {"extraDevTurnsUsed": 0}})
 
     # If running, poll for completion and unlock.
     if state.get("running") and state.get("current") and state["current"].get("jobId"):
         job_id = state["current"]["jobId"]
         entry = poll_job(job_id)
-        # Not started / not recorded yet
         if entry is None:
             state["updatedAt"] = iso_now()
             save_json(state_path, state)
             return 0
 
         if entry.get("action") == "finished":
-            status = entry.get("status") or "error"
+            raw_status = entry.get("status") or "error"
             qid = state["current"].get("queueItemId")
             role = state["current"].get("role")
-            branch = (state.get("current") or {}).get("branch") or None
 
-            # Append DONE to queue ledger if it exists.
+            result = parse_result_footer(entry.get("summary") or "")
+            status = (result.get("status") if isinstance(result, dict) else None) or raw_status
+
+            # Queue ledger DONE
             if qid and os.path.exists(os.path.join(args.state_dir, "queue_events.ndjson")):
                 append_queue_event(args.state_dir, "DONE", id=str(qid), status=str(status))
 
-            # Append tick record
             rec = {
                 "project": args.project,
                 "queueItemId": qid,
@@ -216,10 +233,36 @@ def main() -> int:
                 "status": status,
                 "jobId": job_id,
                 "summary": entry.get("summary"),
+                "result": result,
                 "runAtMs": entry.get("runAtMs"),
                 "durationMs": entry.get("durationMs"),
             }
             append_tick(args.state_dir, rec)
+
+            # Bounded extra dev turn insertion
+            if isinstance(result, dict) and result.get("request_extra_dev_turn"):
+                used = int((state.get("runtime") or {}).get("extraDevTurnsUsed") or 0)
+                max_extra = int((state.get("limits") or {}).get("maxExtraDevTurns") or 1)
+                if used < max_extra:
+                    # Create a new queue item cloned from last, but with new id
+                    extra_id = f"{qid}-extra-{used+1}"
+                    extra_item = {
+                        "id": extra_id,
+                        "project": args.project,
+                        "role": "developer",
+                        "createdAt": iso_now(),
+                        "goal": f"Extra dev turn requested: {result.get('request_reason')}",
+                        "origin": {"requestedBy": qid, "reason": result.get("request_reason")},
+                    }
+                    if os.path.exists(os.path.join(args.state_dir, "queue_events.ndjson")):
+                        append_queue_event(args.state_dir, "INSERT_FRONT", item=extra_item)
+                    else:
+                        # fallback: mutate queue.json
+                        q = load_json(queue_path, [])
+                        q.insert(0, extra_item)
+                        save_json(queue_path, q)
+                    state.setdefault("runtime", {})
+                    state["runtime"]["extraDevTurnsUsed"] = used + 1
 
             # Unlock
             state["running"] = False
@@ -235,12 +278,11 @@ def main() -> int:
             save_json(state_path, state)
             return 0
 
-        # Still running or other action
         state["updatedAt"] = iso_now()
         save_json(state_path, state)
         return 0
 
-    # Idle: pop next queue item.
+    # Idle: pop next queue item
     queue = load_json(queue_path, [])
     if not queue:
         state["updatedAt"] = iso_now()
@@ -250,7 +292,11 @@ def main() -> int:
     item = queue.pop(0)
     qid = str(item.get("id"))
 
-    # Ledger: record DEQUEUE
+    # reset extra turn allowance when moving to a non-dev role
+    if str(item.get("role")) != "developer":
+        state.setdefault("runtime", {})
+        state["runtime"]["extraDevTurnsUsed"] = 0
+
     if os.path.exists(os.path.join(args.state_dir, "queue_events.ndjson")):
         append_queue_event(args.state_dir, "DEQUEUE", id=qid)
 

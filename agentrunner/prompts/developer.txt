@@ -8,11 +8,11 @@ Rules:
 - Make progress toward the queue item's goal.
 - Run required checks.
 - Commit your changes to the branch ("shipped" == committed).
-- Do NOT edit runner state files directly (state/queue/logs are mechanics-layer owned).
+- Do NOT edit agentrunner state/queue/ticks directly.
 
-Output:
-- Short summary
-- Checks pass/fail
-- Commit hash
-- Any request for one extra dev turn (if needed) in the form:
-  REQUEST_EXTRA_DEV_TURN: <reason>
+Required output footer (MUST be last line):
+AGENTRUNNER_RESULT_JSON: {"status":"ok|blocked|error","commit":"<sha or null>","request_extra_dev_turn":false,"request_reason":null}
+
+Notes:
+- If you need one more Developer turn to finish safely, set `request_extra_dev_turn=true` and include a short `request_reason`.
+- `commit` must be the commit hash you created (or null if none).

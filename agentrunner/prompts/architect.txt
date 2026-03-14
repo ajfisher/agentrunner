@@ -6,6 +6,5 @@ Rules:
 - Do not do large refactors.
 - Clarify interfaces, schemas, milestones.
 
-Output:
-- Architecture notes
-- Proposed next milestones
+Required output footer (MUST be last line):
+AGENTRUNNER_RESULT_JSON: {"status":"ok|blocked|error","request_extra_dev_turn":false,"request_reason":null}

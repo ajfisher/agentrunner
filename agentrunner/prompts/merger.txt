@@ -6,6 +6,5 @@ Rules:
 - Merge only if reviewer approved and checks pass.
 - Prefer fast-forward or squash (project policy).
 
-Output:
-- Merge result
-- New base commit
+Required output footer (MUST be last line):
+AGENTRUNNER_RESULT_JSON: {"status":"ok|blocked|error","merged":true,"commit":"<new base sha or null>"}

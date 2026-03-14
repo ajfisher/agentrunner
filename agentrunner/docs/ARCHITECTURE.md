@@ -28,3 +28,13 @@ The agent must not be able to rewrite mechanics history.
 - **Append-only**: ticks are never rewritten; corrections are new entries.
 - **Branch discipline**: Dev work lands on a feature branch; review/merge operate on that branch.
 - **Bounded extra dev turns**: at most 1 (configurable) extra dev item may be inserted before the next review.
+
+## Worker output contract (structured footer)
+
+Each worker run MUST end with a single line:
+
+`AGENTRUNNER_RESULT_JSON: { ... }`
+
+The invoker parses this from the cron run summary and uses it for:
+- tick records (`ticks.ndjson`)
+- bounded insertion of an extra Developer turn (`INSERT_FRONT`)
