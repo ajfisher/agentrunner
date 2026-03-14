@@ -244,23 +244,37 @@ def main() -> int:
                 used = int((state.get("runtime") or {}).get("extraDevTurnsUsed") or 0)
                 max_extra = int((state.get("limits") or {}).get("maxExtraDevTurns") or 1)
                 if used < max_extra:
-                    # Create a new queue item cloned from last, but with new id
                     extra_id = f"{qid}-extra-{used+1}"
-                    extra_item = {
-                        "id": extra_id,
-                        "project": args.project,
-                        "role": "developer",
-                        "createdAt": iso_now(),
-                        "goal": f"Extra dev turn requested: {result.get('request_reason')}",
-                        "origin": {"requestedBy": qid, "reason": result.get("request_reason")},
-                    }
+
+                    base_item = (state.get("current") or {}).get("queueItem")
+                    # If we have the original queue item, clone it (B-mode) so repo_path/branch/checks persist.
+                    if isinstance(base_item, dict):
+                        extra_item = dict(base_item)
+                        extra_item["id"] = extra_id
+                        extra_item["createdAt"] = iso_now()
+                        extra_item["origin"] = {"requestedBy": qid, "reason": result.get("request_reason")}
+                        # clarify goal for the extra turn without losing original goal
+                        orig_goal = extra_item.get("goal")
+                        extra_item["goal"] = f"(extra dev turn) {result.get('request_reason')}\n\nORIGINAL_GOAL: {orig_goal}"
+                        extra_item["role"] = "developer"
+                    else:
+                        # Fallback (A-mode): minimal extra dev item
+                        extra_item = {
+                            "id": extra_id,
+                            "project": args.project,
+                            "role": "developer",
+                            "createdAt": iso_now(),
+                            "goal": f"Extra dev turn requested: {result.get('request_reason')}",
+                            "origin": {"requestedBy": qid, "reason": result.get("request_reason")},
+                        }
+
                     if os.path.exists(os.path.join(args.state_dir, "queue_events.ndjson")):
                         append_queue_event(args.state_dir, "INSERT_FRONT", item=extra_item)
                     else:
-                        # fallback: mutate queue.json
                         q = load_json(queue_path, [])
                         q.insert(0, extra_item)
                         save_json(queue_path, q)
+
                     state.setdefault("runtime", {})
                     state["runtime"]["extraDevTurnsUsed"] = used + 1
 
@@ -314,6 +328,7 @@ def main() -> int:
     state["current"] = {
         "queueItemId": qid,
         "role": item.get("role"),
+        "queueItem": item,
         "jobId": job_id,
         "startedAt": iso_now(),
         "lastHeartbeatAt": None,
