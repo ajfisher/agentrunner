@@ -1,28 +1,16 @@
 #!/usr/bin/env python3
 """Invoker supervisor (mechanics layer).
 
-Designed to run from *system cron* (every minute, or faster if you want).
+Run this from *system cron* (every minute, or faster).
 
 Responsibilities:
-- Load per-project state + queue (materialized view)
-- Enforce a simple run-lock (one job at a time)
-- If not running, pop next queue item
-- Schedule an OpenClaw **one-shot** cron job for that item (session=isolated)
+- Maintain per-project run-lock in state.json
+- Maintain materialized queue.json from append-only queue_events.ndjson
+- If a job is running: poll OpenClaw cron runs for completion and unlock
+- If idle: pop next queue item and schedule a one-shot OpenClaw cron agentTurn
+- Append a tick record to ticks.ndjson when a run finishes
 
-This keeps orchestration mechanics outside the agent's control.
-
-Runtime state directory (recommended):
-  /home/openclaw/.agentrunner/projects/<project>/
-
-Queue file:
-  queue.json (materialized runnable queue)
-
-Append-only logs (optional, but recommended):
-  queue_events.ndjson
-  ticks.ndjson
-
-NOTE: This script uses the OpenClaw CLI (`openclaw cron add --json`) as the
-scheduling bridge.
+This keeps orchestration mechanics outside agent control.
 """
 
 from __future__ import annotations
@@ -63,13 +51,68 @@ def run_cmd(cmd: list[str]) -> tuple[int, str, str]:
     return p.returncode, p.stdout, p.stderr
 
 
-def schedule_one_shot(queue_item: dict, *, at_iso: str, announce: bool, channel: str, to: str, timeout_seconds: int) -> str:
-    """Schedule an OpenClaw one-shot job and return jobId."""
+def materialize_queue(state_dir: str) -> None:
+    events = os.path.join(state_dir, "queue_events.ndjson")
+    out = os.path.join(state_dir, "queue.json")
+    if not os.path.exists(events):
+        return
+    cmd = ["python3", "/home/openclaw/projects/agentrunner/agentrunner/scripts/queue_ledger.py", "--events", events, "--out", out]
+    rc, out_s, err = run_cmd(cmd)
+    if rc != 0:
+        raise RuntimeError(f"queue materialize failed rc={rc} err={err.strip()} out={out_s.strip()}")
 
+
+def append_queue_event(state_dir: str, kind: str, *, item: dict | None = None, id: str | None = None, status: str | None = None) -> None:
+    events = os.path.join(state_dir, "queue_events.ndjson")
+    out = os.path.join(state_dir, "queue.json")
+    payload: dict = {"kind": kind}
+    if item is not None:
+        payload["item"] = item
+    if id is not None:
+        payload["id"] = id
+    if status is not None:
+        payload["status"] = status
+    cmd = [
+        "python3",
+        "/home/openclaw/projects/agentrunner/agentrunner/scripts/queue_ledger.py",
+        "--events",
+        events,
+        "--out",
+        out,
+        "--append",
+        "--kind",
+        kind,
+    ]
+    if id is not None:
+        cmd += ["--id", id]
+    if status is not None:
+        cmd += ["--status", status]
+    if item is not None:
+        cmd += ["--item", json.dumps(item, ensure_ascii=False)]
+
+    rc, out_s, err = run_cmd(cmd)
+    if rc != 0:
+        raise RuntimeError(f"append_queue_event failed rc={rc} err={err.strip()} out={out_s.strip()}")
+
+
+def append_tick(state_dir: str, record: dict) -> None:
+    ticks_path = os.path.join(state_dir, "ticks.ndjson")
+    cmd = [
+        "python3",
+        "/home/openclaw/projects/agentrunner/agentrunner/scripts/log_append.py",
+        "--path",
+        ticks_path,
+        "--record",
+        json.dumps(record, ensure_ascii=False),
+    ]
+    rc, out, err = run_cmd(cmd)
+    if rc != 0:
+        raise RuntimeError(f"tick append failed rc={rc} err={err.strip()} out={out.strip()}")
+
+
+def schedule_one_shot(queue_item: dict, *, at_iso: str, announce: bool, channel: str, to: str, timeout_seconds: int) -> str:
     name = f"agentrunner:{queue_item.get('project')}:{queue_item.get('role')}:{queue_item.get('id')}"
 
-    # The worker prompt is intentionally self-contained.
-    # Later we can templatize this via prompts/<role>.txt + a worker harness.
     msg = (
         "You are running under agentrunner (mechanics-driven).\n\n"
         "You have ONE job: execute the queue item below.\n"
@@ -95,6 +138,7 @@ def schedule_one_shot(queue_item: dict, *, at_iso: str, announce: bool, channel:
         msg,
         "--timeout-seconds",
         str(timeout_seconds),
+        "--keep-after-run",
     ]
 
     if announce:
@@ -113,37 +157,103 @@ def schedule_one_shot(queue_item: dict, *, at_iso: str, announce: bool, channel:
     return job_id
 
 
+def poll_job(job_id: str) -> dict | None:
+    cmd = ["openclaw", "cron", "runs", "--id", job_id, "--limit", "1"]
+    rc, out, err = run_cmd(cmd)
+    if rc != 0:
+        raise RuntimeError(f"openclaw cron runs failed rc={rc} err={err.strip()} out={out.strip()}")
+    data = json.loads(out)
+    entries = data.get("entries") or []
+    if not entries:
+        return None
+    return entries[0]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--project", required=True)
     ap.add_argument("--state-dir", required=True, help="/home/openclaw/.agentrunner/projects/<project>")
-    ap.add_argument("--announce", action="store_true", help="deliver to chat via cron announce")
+    ap.add_argument("--announce", action="store_true")
     ap.add_argument("--channel", default="discord")
-    ap.add_argument("--to", default="", help="delivery target, e.g. channel:<id>")
+    ap.add_argument("--to", default="")
     ap.add_argument("--timeout-seconds", type=int, default=540)
-    ap.add_argument("--schedule-delay-seconds", type=int, default=5, help="schedule one-shot this many seconds in the future")
+    ap.add_argument("--schedule-delay-seconds", type=int, default=5)
     args = ap.parse_args()
 
     state_path = os.path.join(args.state_dir, "state.json")
     queue_path = os.path.join(args.state_dir, "queue.json")
 
-    state = load_json(state_path, {"project": args.project, "running": False, "updatedAt": iso_now(), "current": None})
-    queue = load_json(queue_path, [])
+    # Always materialize queue view if a ledger exists.
+    materialize_queue(args.state_dir)
 
-    # Lock discipline
-    if state.get("running"):
+    state = load_json(state_path, {"project": args.project, "running": False, "updatedAt": iso_now(), "current": None, "limits": {"maxExtraDevTurns": 1}})
+
+    # If running, poll for completion and unlock.
+    if state.get("running") and state.get("current") and state["current"].get("jobId"):
+        job_id = state["current"]["jobId"]
+        entry = poll_job(job_id)
+        # Not started / not recorded yet
+        if entry is None:
+            state["updatedAt"] = iso_now()
+            save_json(state_path, state)
+            return 0
+
+        if entry.get("action") == "finished":
+            status = entry.get("status") or "error"
+            qid = state["current"].get("queueItemId")
+            role = state["current"].get("role")
+            branch = (state.get("current") or {}).get("branch") or None
+
+            # Append DONE to queue ledger if it exists.
+            if qid and os.path.exists(os.path.join(args.state_dir, "queue_events.ndjson")):
+                append_queue_event(args.state_dir, "DONE", id=str(qid), status=str(status))
+
+            # Append tick record
+            rec = {
+                "project": args.project,
+                "queueItemId": qid,
+                "role": role,
+                "status": status,
+                "jobId": job_id,
+                "summary": entry.get("summary"),
+                "runAtMs": entry.get("runAtMs"),
+                "durationMs": entry.get("durationMs"),
+            }
+            append_tick(args.state_dir, rec)
+
+            # Unlock
+            state["running"] = False
+            state["updatedAt"] = iso_now()
+            state["lastCompleted"] = {
+                "queueItemId": qid,
+                "role": role,
+                "jobId": job_id,
+                "endedAt": iso_now(),
+                "status": status,
+            }
+            state["current"] = None
+            save_json(state_path, state)
+            return 0
+
+        # Still running or other action
         state["updatedAt"] = iso_now()
         save_json(state_path, state)
         return 0
 
+    # Idle: pop next queue item.
+    queue = load_json(queue_path, [])
     if not queue:
         state["updatedAt"] = iso_now()
         save_json(state_path, state)
         return 0
 
     item = queue.pop(0)
+    qid = str(item.get("id"))
 
-    # Schedule slightly in the future so the gateway has time to persist the job.
+    # Ledger: record DEQUEUE
+    if os.path.exists(os.path.join(args.state_dir, "queue_events.ndjson")):
+        append_queue_event(args.state_dir, "DEQUEUE", id=qid)
+
     job_id = schedule_one_shot(
         item,
         at_iso=iso_in(args.schedule_delay_seconds),
@@ -156,7 +266,7 @@ def main() -> int:
     state["running"] = True
     state["updatedAt"] = iso_now()
     state["current"] = {
-        "queueItemId": item.get("id"),
+        "queueItemId": qid,
         "role": item.get("role"),
         "jobId": job_id,
         "startedAt": iso_now(),
@@ -165,7 +275,6 @@ def main() -> int:
 
     save_json(queue_path, queue)
     save_json(state_path, state)
-
     return 0
 
 
