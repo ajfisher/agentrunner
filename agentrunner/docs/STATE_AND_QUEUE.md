@@ -31,3 +31,12 @@ When the job has an entry with `action="finished"`, invoker:
 - appends a tick record to `ticks.ndjson`
 - writes a `DONE` event to the queue ledger
 - clears `state.running` and `state.current`
+
+## Extra Developer Turn reset policy
+
+State includes `policy.extraDevTurnReset` to control when mechanics resets `runtime.extraDevTurnsUsed`.
+Supported values:
+- `on_branch_change` (default): reset when the next dequeued item targets a different branch.
+- `on_non_dev`: reset when the next dequeued item is not a Developer role.
+- `on_review_start`: reset when the next dequeued item is a Reviewer role.
+This reset is mechanics-owned; Architect/Manager may recommend policy, but workers do not directly mutate counters.

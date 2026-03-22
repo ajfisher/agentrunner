@@ -203,7 +203,7 @@ def main() -> int:
     # Always materialize queue view if a ledger exists.
     materialize_queue(args.state_dir)
 
-    state = load_json(state_path, {"project": args.project, "running": False, "updatedAt": iso_now(), "current": None, "limits": {"maxExtraDevTurns": 1}, "runtime": {"extraDevTurnsUsed": 0}})
+    state = load_json(state_path, {"project": args.project, "running": False, "updatedAt": iso_now(), "current": None, "limits": {"maxExtraDevTurns": 1}, "policy": {"extraDevTurnReset": "on_branch_change"}, "runtime": {"extraDevTurnsUsed": 0, "lastBranch": None}})
 
     # If running, poll for completion and unlock.
     if state.get("running") and state.get("current") and state["current"].get("jobId"):
@@ -306,9 +306,23 @@ def main() -> int:
     item = queue.pop(0)
     qid = str(item.get("id"))
 
-    # reset extra turn allowance when moving to a non-dev role
-    if str(item.get("role")) != "developer":
-        state.setdefault("runtime", {})
+    # deterministic reset policy for extra developer turns
+    state.setdefault("runtime", {})
+    state.setdefault("policy", {})
+    reset_policy = state["policy"].get("extraDevTurnReset", "on_branch_change")
+    item_role = str(item.get("role"))
+    item_branch = item.get("branch")
+    last_branch = state["runtime"].get("lastBranch")
+
+    should_reset = False
+    if reset_policy == "on_non_dev" and item_role != "developer":
+        should_reset = True
+    elif reset_policy == "on_branch_change" and item_branch != last_branch:
+        should_reset = True
+    elif reset_policy == "on_review_start" and item_role == "reviewer":
+        should_reset = True
+
+    if should_reset:
         state["runtime"]["extraDevTurnsUsed"] = 0
 
     if os.path.exists(os.path.join(args.state_dir, "queue_events.ndjson")):
@@ -323,6 +337,7 @@ def main() -> int:
         timeout_seconds=args.timeout_seconds,
     )
 
+    state["runtime"]["lastBranch"] = item_branch
     state["running"] = True
     state["updatedAt"] = iso_now()
     state["current"] = {

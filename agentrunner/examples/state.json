@@ -3,5 +3,7 @@
   "running": false,
   "updatedAt": "2026-03-14T00:00:00+11:00",
   "current": null,
-  "limits": {"maxExtraDevTurns": 1}
+  "limits": {"maxExtraDevTurns": 1},
+  "policy": {"extraDevTurnReset": "on_branch_change"},
+  "runtime": {"extraDevTurnsUsed": 0, "lastBranch": null}
 }

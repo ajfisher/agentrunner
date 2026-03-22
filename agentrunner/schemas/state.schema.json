@@ -24,6 +24,21 @@
         "maxExtraDevTurns": {"type": "integer", "minimum": 0, "default": 1}
       },
       "additionalProperties": true
+    },
+    "policy": {
+      "type": "object",
+      "properties": {
+        "extraDevTurnReset": {"type": "string", "enum": ["on_non_dev", "on_branch_change", "on_review_start"], "default": "on_branch_change"}
+      },
+      "additionalProperties": true
+    },
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "extraDevTurnsUsed": {"type": "integer", "minimum": 0, "default": 0},
+        "lastBranch": {"type": ["string", "null"]}
+      },
+      "additionalProperties": true
     }
   },
   "additionalProperties": true
