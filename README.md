@@ -53,3 +53,11 @@ Run invoker every minute:
 ```cron
 * * * * * /usr/bin/python3 /home/openclaw/projects/agentrunner/agentrunner/scripts/invoker.py --project picv_spike --state-dir /home/openclaw/.agentrunner/projects/picv_spike --announce --channel discord --to channel:1477159463143084217
 ```
+
+## Status helper
+
+Quickly inspect a project's runtime state:
+
+```bash
+python3 agentrunner/scripts/status.py --state-dir /home/openclaw/.agentrunner/projects/picv_spike
+```
