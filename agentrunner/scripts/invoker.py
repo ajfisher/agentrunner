@@ -23,6 +23,7 @@ import argparse
 import json
 import os
 import subprocess
+import shutil
 from datetime import datetime, timedelta, timezone
 
 
@@ -49,6 +50,21 @@ def save_json(path: str, obj) -> None:
         f.write("\n")
     os.replace(tmp, path)
 
+
+
+
+def openclaw_bin() -> str:
+    # Prefer explicit env var, then common npm-global path, then PATH.
+    candidates = [
+        os.environ.get("OPENCLAW_BIN"),
+        "/home/openclaw/.npm-global/bin/openclaw",
+        shutil.which("openclaw"),
+    ]
+    for c in candidates:
+        if c and os.path.exists(c):
+            return c
+    # Return plain name as last resort (lets subprocess raise a useful error).
+    return "openclaw"
 
 def run_cmd(cmd: list[str]) -> tuple[int, str, str]:
     p = subprocess.run(cmd, capture_output=True, text=True)
@@ -175,7 +191,7 @@ def schedule_one_shot(queue_item: dict, *, at_iso: str, announce: bool, channel:
 
 
 def poll_job(job_id: str) -> dict | None:
-    cmd = ["openclaw", "cron", "runs", "--id", job_id, "--limit", "1"]
+    cmd = [openclaw_bin(), "cron", "runs", "--id", job_id, "--limit", "1"]
     rc, out, err = run_cmd(cmd)
     if rc != 0:
         raise RuntimeError(f"openclaw cron runs failed rc={rc} err={err.strip()} out={out.strip()}")
