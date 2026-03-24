@@ -24,6 +24,8 @@ import json
 import os
 import subprocess
 import shutil
+import urllib.request
+import urllib.error
 from datetime import datetime, timedelta, timezone
 
 
@@ -65,6 +67,35 @@ def openclaw_bin() -> str:
             return c
     # Return plain name as last resort (lets subprocess raise a useful error).
     return "openclaw"
+
+
+
+def gateway_token() -> str | None:
+    if os.environ.get("OPENCLAW_GATEWAY_TOKEN"):
+        return os.environ.get("OPENCLAW_GATEWAY_TOKEN")
+    try:
+        cfg = load_json("/home/openclaw/.openclaw/openclaw.json", {})
+        return (((cfg.get("gateway") or {}).get("auth") or {}).get("token"))
+    except Exception:
+        return None
+
+
+def gateway_http_invoke(tool: str, args: dict, *, action: str | None = None) -> dict:
+    url = os.environ.get("OPENCLAW_GATEWAY_HTTP", "http://127.0.0.1:18789/tools/invoke")
+    token = gateway_token()
+    body = {"tool": tool, "args": args}
+    if action:
+        body["action"] = action
+    data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(url, data=data, method="POST")
+    req.add_header("Content-Type", "application/json")
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    debug_log(f"[invoker] http invoke tool={tool} action={action} url={url}")
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        raw = resp.read().decode("utf-8", errors="replace")
+        return json.loads(raw)
+
 
 def debug_log(msg: str) -> None:
     try:
@@ -163,48 +194,31 @@ def schedule_one_shot(queue_item: dict, *, at_iso: str, announce: bool, channel:
 
     msg = header + role_prompt + "\nQUEUE_ITEM_JSON:\n" + json.dumps(queue_item, indent=2, ensure_ascii=False)
 
-    cmd = [
-        "openclaw",
-        "cron",
-        "add",
-        "--json",
-        "--name",
-        name,
-        "--at",
-        at_iso,
-        "--session",
-        "isolated",
-        "--message",
-        msg,
-        "--timeout-seconds",
-        str(timeout_seconds),
-        "--keep-after-run",
-    ]
-
+    job = {
+        "name": name,
+        "schedule": {"kind": "at", "at": at_iso},
+        "payload": {"kind": "agentTurn", "message": msg, "timeoutSeconds": timeout_seconds},
+        "sessionTarget": "isolated",
+        "enabled": True,
+    }
     if announce:
-        cmd += ["--announce", "--channel", channel, "--to", to, "--best-effort-deliver"]
-    else:
-        cmd += ["--no-deliver"]
+        job["delivery"] = {"mode": "announce", "channel": channel, "to": to, "bestEffort": True}
 
-    rc, out, err = run_cmd(cmd)
-    if rc != 0:
-        raise RuntimeError(f"openclaw cron add failed rc={rc} err={err.strip()} out={out.strip()}")
-
-    job = json.loads(out)
-    job_id = job.get("id") or job.get("jobId")
+    resp = gateway_http_invoke("cron", {"action": "add", "job": job}, action="add")
+    if not resp.get("ok"):
+        raise RuntimeError(f"gateway cron add failed: {resp}")
+    result = resp.get("result") or {}
+    job_id = result.get("jobId") or result.get("id")
     if not job_id:
-        raise RuntimeError(f"openclaw cron add returned JSON without id/jobId: {job}")
+        raise RuntimeError(f"cron add returned no job id: {resp}")
     return job_id
 
 
 def poll_job(job_id: str) -> dict | None:
-    ocbin = openclaw_bin()
-    debug_log(f"[invoker] polling with openclaw_bin={ocbin} jobId={job_id}")
-    cmd = [ocbin, "cron", "runs", "--id", job_id, "--limit", "1"]
-    rc, out, err = run_cmd(cmd)
-    if rc != 0:
-        raise RuntimeError(f"openclaw cron runs failed rc={rc} err={err.strip()} out={out.strip()}")
-    data = json.loads(out)
+    resp = gateway_http_invoke("cron", {"action": "runs", "jobId": job_id, "limit": 1}, action="runs")
+    if not resp.get("ok"):
+        raise RuntimeError(f"gateway cron runs failed: {resp}")
+    data = resp.get("result") or {}
     entries = data.get("entries") or []
     if not entries:
         return None
