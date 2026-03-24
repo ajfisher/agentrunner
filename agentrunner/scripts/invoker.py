@@ -66,6 +66,13 @@ def openclaw_bin() -> str:
     # Return plain name as last resort (lets subprocess raise a useful error).
     return "openclaw"
 
+def debug_log(msg: str) -> None:
+    try:
+        with open("/tmp/agentrunner-picv.log", "a", encoding="utf-8") as f:
+            f.write(msg + "\n")
+    except Exception:
+        pass
+
 def run_cmd(cmd: list[str]) -> tuple[int, str, str]:
     p = subprocess.run(cmd, capture_output=True, text=True)
     return p.returncode, p.stdout, p.stderr
@@ -191,7 +198,9 @@ def schedule_one_shot(queue_item: dict, *, at_iso: str, announce: bool, channel:
 
 
 def poll_job(job_id: str) -> dict | None:
-    cmd = [openclaw_bin(), "cron", "runs", "--id", job_id, "--limit", "1"]
+    ocbin = openclaw_bin()
+    debug_log(f"[invoker] polling with openclaw_bin={ocbin} jobId={job_id}")
+    cmd = [ocbin, "cron", "runs", "--id", job_id, "--limit", "1"]
     rc, out, err = run_cmd(cmd)
     if rc != 0:
         raise RuntimeError(f"openclaw cron runs failed rc={rc} err={err.strip()} out={out.strip()}")
