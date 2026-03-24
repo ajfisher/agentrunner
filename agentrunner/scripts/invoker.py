@@ -319,7 +319,7 @@ def main() -> int:
         save_json(state_path, state)
         return 0
 
-    item = queue.pop(0)
+    item = queue[0]
     qid = str(item.get("id"))
 
     # deterministic reset policy for extra developer turns
@@ -341,9 +341,7 @@ def main() -> int:
     if should_reset:
         state["runtime"]["extraDevTurnsUsed"] = 0
 
-    if os.path.exists(os.path.join(args.state_dir, "queue_events.ndjson")):
-        append_queue_event(args.state_dir, "DEQUEUE", id=qid)
-
+    # Schedule first; only consume queue item if scheduling succeeds.
     job_id = schedule_one_shot(
         item,
         at_iso=iso_in(args.schedule_delay_seconds),
@@ -352,6 +350,11 @@ def main() -> int:
         to=args.to,
         timeout_seconds=args.timeout_seconds,
     )
+
+    # Now commit the dequeue transaction.
+    queue.pop(0)
+    if os.path.exists(os.path.join(args.state_dir, "queue_events.ndjson")):
+        append_queue_event(args.state_dir, "DEQUEUE", id=qid)
 
     state["runtime"]["lastBranch"] = item_branch
     state["running"] = True
