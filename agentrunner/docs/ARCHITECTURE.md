@@ -41,3 +41,16 @@ Each worker run MUST end with a single line:
 `AGENTRUNNER_RESULT_JSON: { ... }`
 
 And it MUST write the same JSON object to the provided result file path.
+
+## Operator-facing Discord summaries
+
+Human-visible Discord messages are **not** the source of truth.
+Structured state lives in result/handoff JSON artifacts and `ticks.ndjson`.
+
+Discord output should be:
+- concise
+- role-prefixed (`Developer ›`, `Reviewer ›`, etc.)
+- 2–5 short bullets max
+- free of raw JSON payloads
+
+This keeps operator channels readable while mechanics consumes deterministic artifacts.

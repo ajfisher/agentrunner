@@ -36,3 +36,8 @@ Completed already:
 ### 5) Optional niceties
 - [ ] Add a small audit/status helper for queue events + result files + last ticks in one view
 - [ ] Consider a project-specific adapter layer for custom checks/context beyond queue item fields
+
+### 6) Operator UX cleanup
+- [x] Remove raw JSON from Discord-visible outputs
+- [x] Prefix Discord messages with role/persona (`Developer ›`, `Reviewer ›`, etc.)
+- [x] Tighten operator summaries to short bullets instead of long mixed prose+machine payloads
