@@ -42,6 +42,28 @@ def gateway_token() -> str | None:
     return (((cfg.get('gateway') or {}).get('auth') or {}).get('token'))
 
 
+
+
+def gateway_token() -> str | None:
+    if os.environ.get('OPENCLAW_GATEWAY_TOKEN'):
+        return os.environ['OPENCLAW_GATEWAY_TOKEN']
+    cfg = load_json(CONFIG_PATH, {})
+    return (((cfg.get('gateway') or {}).get('auth') or {}).get('token'))
+
+
+def gateway_http_invoke(tool: str, args: dict, *, action: str | None = None) -> dict:
+    url = os.environ.get('OPENCLAW_GATEWAY_HTTP', 'http://127.0.0.1:18789/tools/invoke')
+    token = gateway_token()
+    body = {'tool': tool, 'args': args}
+    if action:
+        body['action'] = action
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), method='POST')
+    req.add_header('Content-Type', 'application/json')
+    if token:
+        req.add_header('Authorization', f'Bearer {token}')
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read().decode())
+
 def hooks_token() -> str | None:
     if os.environ.get('OPENCLAW_HOOKS_TOKEN'):
         return os.environ['OPENCLAW_HOOKS_TOKEN']
@@ -148,6 +170,66 @@ def build_dev_followup_item(base_item: dict | None, *, project: str, requested_b
     }
 
 
+def format_operator_summary(role: str, result: dict) -> str:
+    prefix = {
+        'developer': 'Developer ›',
+        'reviewer': 'Reviewer ›',
+        'manager': 'Manager ›',
+        'merger': 'Merger ›',
+        'architect': 'Architect ›',
+    }.get(role, f'{role.title()} ›')
+    lines = [prefix]
+    status = result.get('status')
+    if status:
+        lines.append(f'- Status: {status}')
+    summary = result.get('summary')
+    if summary:
+        lines.append(f'- {summary}')
+    if role == 'developer':
+        commit = result.get('commit')
+        if commit:
+            lines.append(f'- Commit: {commit}')
+        checks = result.get('checks') or []
+        ok = [c.get('name') for c in checks if isinstance(c, dict) and c.get('status') == 'ok']
+        if ok:
+            lines.append(f'- Checks: {", ".join(ok[:2])} passed')
+        if result.get('requestExtraDevTurn') or result.get('request_extra_dev_turn'):
+            rr = result.get('requestReason') or result.get('request_reason')
+            lines.append(f'- Requested another Dev turn: {rr or "yes"}')
+    elif role == 'reviewer':
+        approved = result.get('approved')
+        if approved is not None:
+            lines.append(f'- Approved: {approved}')
+        findings = result.get('findings') or []
+        if findings:
+            top = findings[0]
+            if isinstance(top, dict):
+                title = top.get('title') or 'Finding'
+                lines.append(f'- Top finding: {title}')
+                acc = top.get('acceptance')
+                if acc:
+                    lines.append(f'- Acceptance: {acc}')
+        if result.get('requestExtraDevTurn') or result.get('request_extra_dev_turn'):
+            rr = result.get('requestReason') or result.get('request_reason')
+            lines.append(f'- Follow-up developer work requested{": " + rr if rr else ""}')
+    elif role == 'merger':
+        merged = result.get('merged')
+        if merged is not None:
+            lines.append(f'- Merged: {merged}')
+        commit = result.get('commit')
+        if commit:
+            lines.append(f'- Commit: {commit}')
+    return "\n".join(lines[:6])
+
+
+def send_operator_summary(channel: str, to: str, role: str, result: dict) -> None:
+    msg = format_operator_summary(role, result)
+    try:
+        gateway_http_invoke('message', {'action': 'send', 'channel': channel, 'target': to, 'message': msg}, action='send')
+    except Exception as e:
+        debug_log(f'[invoker] failed to send operator summary: {e}')
+
+
 def poll_completion(state_dir: str, state: dict) -> bool:
     cur = state.get('current') or {}
     result_path = cur.get('resultPath')
@@ -166,6 +248,8 @@ def poll_completion(state_dir: str, state: dict) -> bool:
         'status': status, 'runId': cur.get('runId'), 'sessionKey': cur.get('sessionKey'),
         'result': result, 'summary': result.get('summary')
     })
+    if cur.get('announce') and cur.get('channel') and cur.get('to'):
+        send_operator_summary(cur.get('channel'), cur.get('to'), str(role), result)
     handoff_path = cur.get('handoffPath')
     handoff_obj = None
     if handoff_path and Path(handoff_path).exists():
