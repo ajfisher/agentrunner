@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import argparse, json, os, subprocess, urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 ROOT = Path('/home/openclaw/projects/agentrunner')
@@ -63,6 +63,48 @@ def gateway_http_invoke(tool: str, args: dict, *, action: str | None = None) -> 
         req.add_header('Authorization', f'Bearer {token}')
     with urllib.request.urlopen(req, timeout=30) as resp:
         return json.loads(resp.read().decode())
+
+
+
+def parse_iso(ts: str | None):
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts)
+    except Exception:
+        return None
+
+
+def maybe_send_watchdog(state: dict, cur: dict, *, channel: str | None, to: str | None) -> None:
+    if not channel or not to:
+        return
+    started = parse_iso(cur.get('startedAt'))
+    if started is None:
+        return
+    now = datetime.now(timezone.utc).astimezone()
+    age = now - started
+    if age < timedelta(minutes=2):
+        return
+    sent_at = parse_iso(cur.get('watchdogSentAt'))
+    if sent_at is not None:
+        return
+    role = cur.get('role') or 'unknown'
+    qid = cur.get('queueItemId') or 'unknown'
+    msg = f"{str(role).title()} ›\n- Status: waiting for result artifact\n- Queue item: {qid}\n- Run has been active for >2 minutes without RESULT_PATH appearing\n- Likely worker contract failure; keeping queue locked for now"
+    try:
+        gateway_http_invoke('message', {'action': 'send', 'channel': channel, 'target': to, 'message': msg}, action='send')
+        cur['watchdogSentAt'] = iso_now()
+    except Exception as e:
+        debug_log(f'[invoker] watchdog send failed: {e}')
+
+
+def stale_run_should_unlock(cur: dict) -> bool:
+    started = parse_iso(cur.get('startedAt'))
+    if started is None:
+        return False
+    now = datetime.now(timezone.utc).astimezone()
+    return (now - started) >= timedelta(minutes=12)
+
 
 def hooks_token() -> str | None:
     if os.environ.get('OPENCLAW_HOOKS_TOKEN'):
@@ -234,6 +276,34 @@ def poll_completion(state_dir: str, state: dict) -> bool:
     cur = state.get('current') or {}
     result_path = cur.get('resultPath')
     if not result_path or not Path(result_path).exists():
+        maybe_send_watchdog(state, cur, channel=cur.get('channel'), to=cur.get('to'))
+        if stale_run_should_unlock(cur):
+            qid = cur.get('queueItemId')
+            role = cur.get('role')
+            rec = {
+                'project': state.get('project'),
+                'queueItemId': qid,
+                'role': role,
+                'status': 'blocked',
+                'runId': cur.get('runId'),
+                'sessionKey': cur.get('sessionKey'),
+                'result': {'status': 'blocked', 'summary': 'No result artifact produced before stale-run timeout'},
+                'summary': 'No result artifact produced before stale-run timeout',
+            }
+            append_tick(state_dir, rec)
+            state['running'] = False
+            state['updatedAt'] = iso_now()
+            state['lastCompleted'] = {
+                'queueItemId': qid,
+                'role': role,
+                'runId': cur.get('runId'),
+                'sessionKey': cur.get('sessionKey'),
+                'endedAt': iso_now(),
+                'status': 'blocked',
+            }
+            state['current'] = None
+            save_json(Path(state_dir) / 'state.json', state)
+            return True
         state['updatedAt'] = iso_now()
         save_json(Path(state_dir) / 'state.json', state)
         return False
