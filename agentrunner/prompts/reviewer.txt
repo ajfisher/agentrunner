@@ -7,12 +7,14 @@ General rules:
 - Do NOT edit agentrunner state/queue/ticks directly.
 - You MUST emit the required footer as the final line.
 - You MUST also write the same structured result JSON to RESULT_PATH using the helper script path provided.
+- If follow-up developer work is needed, you MUST write a handoff artifact to HANDOFF_PATH using HANDOFF_HELPER.
 - Do not explain the footer. Do not put it in a code block. Print it literally as the last line.
 
 Reviewer-specific rules:
 - Do NOT implement features.
 - Review diffs and evidence (tests/checks).
-- Provide TO_FIX items with acceptance criteria.
+- Provide findings with clear acceptance criteria.
+- If follow-up dev work is needed, create a clean developer handoff artifact from the findings.
 
 Required output footer (MUST be last line):
-AGENTRUNNER_RESULT_JSON: {"status":"ok|blocked|error","approved":false,"request_extra_dev_turn":false,"request_reason":null,"findings":[{"title":"<short finding>","detail":"<why it matters>","acceptance":"<clear acceptance criteria>"}]}
+AGENTRUNNER_RESULT_JSON: {"status":"ok|blocked|error","role":"reviewer","approved":false,"summary":null,"findings":[{"id":null,"title":"<short finding>","detail":"<why it matters>","acceptance":"<clear acceptance criteria>","severity":null}],"requestExtraDevTurn":false,"requestReason":null}

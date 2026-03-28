@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "reviewer result",
+  "type": "object",
+  "required": ["status", "role", "approved"],
+  "properties": {
+    "status": {"type": "string", "enum": ["ok", "blocked", "error"]},
+    "role": {"type": "string", "const": "reviewer"},
+    "approved": {"type": "boolean"},
+    "summary": {"type": ["string", "null"]},
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title", "detail", "acceptance"],
+        "properties": {
+          "id": {"type": ["string", "null"]},
+          "title": {"type": "string"},
+          "detail": {"type": "string"},
+          "acceptance": {"type": "string"},
+          "severity": {"type": ["string", "null"]}
+        },
+        "additionalProperties": true
+      }
+    },
+    "requestExtraDevTurn": {"type": ["boolean", "null"]},
+    "requestReason": {"type": ["string", "null"]}
+  },
+  "additionalProperties": true
+}

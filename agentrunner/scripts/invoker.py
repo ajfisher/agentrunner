@@ -91,14 +91,18 @@ def load_role_prompt(role: str) -> str:
     return (ROOT / f'agentrunner/prompts/{role}.txt').read_text().strip() + '\n'
 
 
-def build_message(queue_item: dict, result_path: str) -> str:
+def build_message(queue_item: dict, result_path: str, handoff_path: str | None = None) -> str:
     role_prompt = load_role_prompt(str(queue_item.get('role')))
+    handoff_bits = ''
+    if handoff_path:
+        handoff_bits = f'HANDOFF_PATH: {handoff_path}\nHANDOFF_HELPER: {ROOT / "agentrunner/scripts/write_handoff.py"}\n\nIf follow-up developer work is needed, write a structured handoff artifact to HANDOFF_PATH using HANDOFF_HELPER.\n\n'
     header = (
         'You are running under agentrunner (mechanics-driven).\n'
         'The mechanics layer owns state/queue/logs; you MUST NOT modify them.\n\n'
         f'RESULT_PATH: {result_path}\n'
         f'RESULT_HELPER: {ROOT / "agentrunner/scripts/write_result.py"}\n\n'
         'When you finish, write the same JSON object from AGENTRUNNER_RESULT_JSON to RESULT_PATH using RESULT_HELPER.\n\n'
+        + handoff_bits
     )
     return header + role_prompt + '\nQUEUE_ITEM_JSON:\n' + json.dumps(queue_item, indent=2, ensure_ascii=False)
 
@@ -162,22 +166,49 @@ def poll_completion(state_dir: str, state: dict) -> bool:
         'status': status, 'runId': cur.get('runId'), 'sessionKey': cur.get('sessionKey'),
         'result': result, 'summary': result.get('summary')
     })
-    if result.get('request_extra_dev_turn'):
+    handoff_path = cur.get('handoffPath')
+    handoff_obj = None
+    if handoff_path and Path(handoff_path).exists():
+        handoff_obj = json.loads(Path(handoff_path).read_text())
+
+    request_extra = result.get('requestExtraDevTurn', result.get('request_extra_dev_turn'))
+    request_reason = result.get('requestReason', result.get('request_reason'))
+
+    if handoff_obj is not None:
+        extra_item = {
+            'id': f"{qid}-followup-1",
+            'project': handoff_obj.get('project', state.get('project')),
+            'role': handoff_obj.get('targetRole', 'developer'),
+            'createdAt': iso_now(),
+            'repo_path': handoff_obj.get('repoPath'),
+            'branch': handoff_obj.get('branch'),
+            'base': handoff_obj.get('base'),
+            'goal': handoff_obj.get('goal'),
+            'checks': handoff_obj.get('checks', []),
+            'constraints': handoff_obj.get('constraints', {}),
+            'contextFiles': handoff_obj.get('contextFiles', []),
+            'origin': {'requestedBy': qid, 'handoff': handoff_path, 'findings': handoff_obj.get('findings', [])},
+        }
+        if Path(state_dir, 'queue_events.ndjson').exists():
+            append_queue_event(state_dir, 'INSERT_FRONT', item=extra_item)
+        else:
+            q = load_json(Path(state_dir) / 'queue.json', [])
+            q.insert(0, extra_item)
+            save_json(Path(state_dir) / 'queue.json', q)
+        state.setdefault('runtime', {})['extraDevTurnsUsed'] = int((state.get('runtime') or {}).get('extraDevTurnsUsed') or 0) + 1
+    elif request_extra:
         used = int((state.get('runtime') or {}).get('extraDevTurnsUsed') or 0)
         max_extra = int((state.get('limits') or {}).get('maxExtraDevTurns') or 1)
         if used < max_extra:
             base_item = cur.get('queueItem')
-            extra_id = f"{qid}-extra-{used+1}"
-            if isinstance(base_item, dict):
-                extra_item = dict(base_item)
-                extra_item['id'] = extra_id
-                extra_item['createdAt'] = iso_now()
-                extra_item['origin'] = {'requestedBy': qid, 'reason': result.get('request_reason')}
-                orig_goal = extra_item.get('goal')
-                extra_item['goal'] = f"(extra dev turn) {result.get('request_reason')}\\n\\nORIGINAL_GOAL: {orig_goal}"
-                extra_item['role'] = 'developer'
-            else:
-                extra_item = {'id': extra_id, 'project': state.get('project'), 'role': 'developer', 'createdAt': iso_now(), 'goal': f"Extra dev turn requested: {result.get('request_reason')}"}
+            findings = result.get('findings') if isinstance(result, dict) else None
+            extra_item = build_dev_followup_item(
+                base_item,
+                project=state.get('project'),
+                requested_by=str(qid),
+                reason=request_reason if isinstance(result, dict) else None,
+                findings=findings if isinstance(findings, list) else None,
+            )
             if Path(state_dir, 'queue_events.ndjson').exists():
                 append_queue_event(state_dir, 'INSERT_FRONT', item=extra_item)
             else:
@@ -185,6 +216,7 @@ def poll_completion(state_dir: str, state: dict) -> bool:
                 q.insert(0, extra_item)
                 save_json(Path(state_dir) / 'queue.json', q)
             state.setdefault('runtime', {})['extraDevTurnsUsed'] = used + 1
+
     state['running'] = False
     state['updatedAt'] = iso_now()
     state['lastCompleted'] = {'queueItemId': qid, 'role': role, 'runId': cur.get('runId'), 'sessionKey': cur.get('sessionKey'), 'endedAt': iso_now(), 'status': status}
@@ -236,7 +268,8 @@ def main() -> int:
 
     session_key = f"hook:agentrunner:{args.project}:{qid}"
     result_path = str(results_dir / f"{qid}.json")
-    payload = {'message': build_message(item, result_path), 'name': f"agentrunner:{args.project}:{item.get('role')}:{qid}", 'sessionKey': session_key, 'wakeMode': 'now', 'deliver': bool(args.announce), 'channel': args.channel, 'to': args.to, 'timeoutSeconds': args.timeout_seconds}
+    handoff_path = str(Path(state_dir) / 'handoffs' / f"{qid}.json") if str(item.get('role')) == 'reviewer' else None
+    payload = {'message': build_message(item, result_path, handoff_path), 'name': f"agentrunner:{args.project}:{item.get('role')}:{qid}", 'sessionKey': session_key, 'wakeMode': 'now', 'deliver': bool(args.announce), 'channel': args.channel, 'to': args.to, 'timeoutSeconds': args.timeout_seconds}
     resp = hooks_agent(payload)
     if not resp.get('ok'):
         raise RuntimeError(f"hooks agent failed: {resp}")

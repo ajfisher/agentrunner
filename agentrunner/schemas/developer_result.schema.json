@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "developer result",
+  "type": "object",
+  "required": ["status", "role"],
+  "properties": {
+    "status": {"type": "string", "enum": ["ok", "blocked", "error"]},
+    "role": {"type": "string", "const": "developer"},
+    "commit": {"type": ["string", "null"]},
+    "summary": {"type": ["string", "null"]},
+    "checks": {"type": "array", "items": {"type": "object"}},
+    "requestExtraDevTurn": {"type": ["boolean", "null"]},
+    "requestReason": {"type": ["string", "null"]}
+  },
+  "additionalProperties": true
+}

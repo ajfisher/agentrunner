@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "handoff artifact",
+  "type": "object",
+  "required": ["sourceQueueItemId", "sourceRole", "targetRole", "project", "goal"],
+  "properties": {
+    "sourceQueueItemId": {"type": "string"},
+    "sourceRole": {"type": "string"},
+    "targetRole": {"type": "string"},
+    "project": {"type": "string"},
+    "repoPath": {"type": ["string", "null"]},
+    "branch": {"type": ["string", "null"]},
+    "base": {"type": ["string", "null"]},
+    "goal": {"type": "string"},
+    "checks": {"type": "array", "items": {"type": "string"}},
+    "findings": {"type": "array", "items": {"type": "object"}},
+    "constraints": {"type": "object", "additionalProperties": true},
+    "contextFiles": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}
