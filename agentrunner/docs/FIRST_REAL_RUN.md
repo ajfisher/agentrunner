@@ -1,42 +1,23 @@
-# First real run candidates (picv_spike)
+# First real run status
 
-Use a **single Developer item** first, not a full cycle.
-Deliver to `#agent-ops` for visibility.
+This phase is no longer hypothetical.
 
-## Candidate A — replay mode truth pass
-- Branch: `feature/picv_spike/replay-mode`
-- Goal:
-  - verify whether replay mode exists in the standalone repo
-  - if missing, implement `--input-video` via ffmpeg decode
-  - add/verify one replay smoke in `check.sh`
-- Checks:
-  - `./check.sh`
-  - `rg -- '--input-video|ffmpeg' motion_gate_picamera2.py check.sh`
-- Why good:
-  - bounded, high-signal, closes a known ambiguity from the earlier run
+Completed:
+- A first real single-Developer run on `picv_spike` completed successfully on branch:
+  - `feature/picv_spike/replay-mode`
+- Follow-up multi-role sequence also ran using hooks-based dispatch:
+  - Reviewer → Developer → Reviewer → auto-inserted extra Developer turn
 
-## Candidate B — summarizer/check consistency pass
-- Branch: `fix/picv_spike/check-and-summary`
-- Goal:
-  - make `summarize_events.py`, `check.sh`, and related tests internally consistent
-  - ensure docs match current code reality
-- Checks:
-  - `./check.sh`
-  - `python3 -m unittest -q test_summarize_events`
-- Why good:
-  - less risky, mostly repo coherence, good first mechanics test
+Useful outcome:
+- The hooks/result-file execution path is now the active path to refine.
+- The next validation focus is not basic scheduling; it is **handoff semantics**.
 
-## Candidate C — H.264 preroll rung polish
-- Branch: `feature/picv_spike/preroll-rung`
-- Goal:
-  - validate `motion_gate_preroll_h264.py`
-  - ensure docs/checks cover it cleanly
-- Checks:
-  - `./check.sh`
-  - `python3 -m py_compile motion_gate_preroll_h264.py`
-- Why good:
-  - tangible capability rung, but a bit more hardware-adjacent
+## Current recommended next test
+Run another clean:
+- `Review → Dev → Review`
 
-## Recommendation
-Start with **Candidate A** (replay mode truth pass).
-It directly addresses a previously confusing area and is valuable without requiring a full multi-role loop.
+Success criteria:
+- reviewer emits structured `findings[]`
+- invoker shapes a clean Developer follow-up item
+- developer consumes those findings explicitly
+- result files and `ticks.ndjson` remain consistent through the sequence

@@ -7,7 +7,8 @@ Responsibilities:
 - Maintain per-project **state** and **queue**
 - Enforce **run-lock** (one job running at a time)
 - Write **append-only tick logs** (ground truth)
-- Schedule/trigger agent runs (OpenClaw one-shot cron jobs)
+- Dispatch agent runs via **`/hooks/agent`**
+- Detect completion via deterministic **result files**
 
 This layer should be boring and auditable.
 
@@ -15,26 +16,28 @@ This layer should be boring and auditable.
 Responsibilities:
 - Execute one bounded task according to the role prompt
 - Report results in a structured way
+- Write a deterministic result artifact for mechanics to observe
 
 The agent must not be able to rewrite mechanics history.
 
-## Scheduling pattern: invoker → one-shot jobs
+## Current dispatch pattern
 
-- A small **invoker** runs on a fast cadence (e.g. every minute).
-- It pops the next queue item and schedules an OpenClaw cron one-shot job.
-- When the job finishes, it appends a tick record.
+- A small **invoker** runs on a fast cadence (e.g. every 2 minutes).
+- It pops the next queue item and dispatches it with `POST /hooks/agent`.
+- It supplies a deterministic `sessionKey` and a `RESULT_PATH`.
+- The worker writes `AGENTRUNNER_RESULT_JSON` as its last line and writes the same JSON to the result file.
+- On the next invoker tick, mechanics sees the result file, appends a tick record, updates queue state, and unlocks.
 
 ## Invariants
 - **Append-only**: ticks are never rewritten; corrections are new entries.
-- **Branch discipline**: Dev work lands on a feature branch; review/merge operate on that branch.
+- **Branch discipline**: Dev work lands on a feature/fix branch; review/merge operate on that branch.
 - **Bounded extra dev turns**: at most 1 (configurable) extra dev item may be inserted before the next review.
+- **Deterministic identity**: each dispatched run has a stable session key:
+  - `hook:agentrunner:<project>:<queueItemId>`
 
-## Worker output contract (structured footer)
-
+## Worker output contract
 Each worker run MUST end with a single line:
 
 `AGENTRUNNER_RESULT_JSON: { ... }`
 
-The invoker parses this from the cron run summary and uses it for:
-- tick records (`ticks.ndjson`)
-- bounded insertion of an extra Developer turn (`INSERT_FRONT`)
+And it MUST write the same JSON object to the provided result file path.
