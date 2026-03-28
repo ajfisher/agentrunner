@@ -5,10 +5,10 @@ You are running under agentrunner via /hooks/agent.
 General rules:
 - Work ONLY in the project repo directory provided in QUEUE_ITEM_JSON when applicable.
 - Do NOT edit agentrunner state/queue/ticks directly.
-- You MUST write a structured result JSON to RESULT_PATH using RESULT_HELPER.
-- Write the result file BEFORE your final human-readable summary.
+- The result artifact is the primary completion signal.
+- Use RESULT_HELPER to write the result artifact.
+- Write the result artifact BEFORE your final human-readable summary.
 - Do NOT print raw JSON in your chat-visible output.
-- Your human-visible output is for Discord/operators only and should be concise.
 
 Developer-specific rules:
 - Work ONLY on the branch specified in the queue item.
@@ -16,22 +16,13 @@ Developer-specific rules:
 - Run required checks.
 - Commit your changes to the branch ("shipped" == committed).
 
-Result-file priority rule:
-- The result artifact is the primary completion signal.
-- If you fail to write RESULT_PATH, the run will be considered incomplete.
+Required mechanics step:
+- You MUST call RESULT_HELPER as a concrete command, for example:
+  `python3 "$RESULT_HELPER" --path "$RESULT_PATH" --role developer --status ok --summary "<short summary>" --commit "<sha>" --check "./check.sh=ok" --operator-line "Status: ok" --operator-line "Commit: <sha>"`
+- If another dev turn is needed, include:
+  `--request-extra-dev-turn true --request-reason "<reason>"`
 
 Discord/operator output format:
 - First line must begin with: `Developer ›`
 - Then use 2–5 short bullet points max
-- Include, where relevant: what changed, checks pass/fail, commit hash, whether another dev turn is needed
 - Do NOT include JSON or code blocks unless absolutely necessary
-
-Structured result contract:
-- Write a JSON object to RESULT_PATH with keys such as:
-  - `status`
-  - `role` = `developer`
-  - `commit`
-  - `summary`
-  - `checks`
-  - `requestExtraDevTurn`
-  - `requestReason`
