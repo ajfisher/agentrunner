@@ -103,6 +103,47 @@ def build_message(queue_item: dict, result_path: str) -> str:
     return header + role_prompt + '\nQUEUE_ITEM_JSON:\n' + json.dumps(queue_item, indent=2, ensure_ascii=False)
 
 
+def build_dev_followup_item(base_item: dict | None, *, project: str, requested_by: str, reason: str | None, findings: list | None) -> dict:
+    now = iso_now()
+    suffix = 'followup'
+    item_id = f"{requested_by}-{suffix}"
+    clean_goal = reason or 'Address reviewer findings and re-run checks.'
+    if findings:
+        bullet_lines = []
+        for f in findings:
+            if isinstance(f, dict):
+                title = f.get('title') or 'Finding'
+                detail = f.get('detail') or ''
+                acceptance = f.get('acceptance') or ''
+                bit = f"- {title}"
+                if detail:
+                    bit += f": {detail}"
+                if acceptance:
+                    bit += f"\n  Acceptance: {acceptance}"
+                bullet_lines.append(bit)
+        if bullet_lines:
+            clean_goal = clean_goal + "\n\nReviewer findings to address:\n" + "\n".join(bullet_lines)
+
+    if isinstance(base_item, dict):
+        extra_item = dict(base_item)
+        extra_item['id'] = item_id
+        extra_item['createdAt'] = now
+        extra_item['role'] = 'developer'
+        extra_item['goal'] = clean_goal
+        extra_item['origin'] = {'requestedBy': requested_by, 'reason': reason, 'findings': findings or []}
+        # Ensure dev follow-up uses dev-friendly checks if present; otherwise preserve existing checks.
+        return extra_item
+
+    return {
+        'id': item_id,
+        'project': project,
+        'role': 'developer',
+        'createdAt': now,
+        'goal': clean_goal,
+        'origin': {'requestedBy': requested_by, 'reason': reason, 'findings': findings or []},
+    }
+
+
 def poll_completion(state_dir: str, state: dict) -> bool:
     cur = state.get('current') or {}
     result_path = cur.get('resultPath')
