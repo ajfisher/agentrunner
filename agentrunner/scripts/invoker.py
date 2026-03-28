@@ -353,7 +353,7 @@ def main() -> int:
     session_key = f"hook:agentrunner:{args.project}:{qid}"
     result_path = str(results_dir / f"{qid}.json")
     handoff_path = str(Path(state_dir) / 'handoffs' / f"{qid}.json") if str(item.get('role')) == 'reviewer' else None
-    payload = {'message': build_message(item, result_path, handoff_path), 'name': f"agentrunner:{args.project}:{item.get('role')}:{qid}", 'sessionKey': session_key, 'wakeMode': 'now', 'deliver': bool(args.announce), 'channel': args.channel, 'to': args.to, 'timeoutSeconds': args.timeout_seconds}
+    payload = {'message': build_message(item, result_path, handoff_path), 'name': f"agentrunner:{args.project}:{item.get('role')}:{qid}", 'sessionKey': session_key, 'wakeMode': 'now', 'deliver': False, 'channel': args.channel, 'to': args.to, 'timeoutSeconds': args.timeout_seconds}
     resp = hooks_agent(payload)
     if not resp.get('ok'):
         raise RuntimeError(f"hooks agent failed: {resp}")
