@@ -47,8 +47,19 @@ def main() -> int:
             checks.append({'name': raw, 'status': 'ok'})
 
     findings = []
+
+    def append_finding(value):
+        if isinstance(value, list):
+            for item in value:
+                append_finding(item)
+            return
+        if isinstance(value, dict) and isinstance(value.get('findings'), list) and len(value) == 1:
+            append_finding(value.get('findings'))
+            return
+        findings.append(value)
+
     for raw in args.finding_json:
-        findings.append(json.loads(raw))
+        append_finding(json.loads(raw))
 
     prefix = {
         'developer': 'Developer ›',

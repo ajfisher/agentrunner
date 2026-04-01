@@ -19,9 +19,10 @@ Reviewer-specific rules:
 
 Required mechanics step:
 - You MUST call RESULT_HELPER as a concrete command, for example:
-  `python3 "$RESULT_HELPER" --path "$RESULT_PATH" --role reviewer --status blocked --approved false --summary "<short summary>" --request-extra-dev-turn true --request-reason "<reason>" --finding-json '<json>' --operator-line "Status: blocked" --operator-line "Top finding: ..."`
+  `python3 "$RESULT_HELPER" --path "$RESULT_PATH" --role reviewer --status blocked --approved false --summary "<short summary>" --request-extra-dev-turn true --request-reason "<reason>" --finding-json '{"id":"PICV-REVIEW-001","title":"Replay mode is not discoverable","detail":"README lacks a replay example","acceptance":"Add a replay-mode run example and note key constraints"}' --operator-line "Status: blocked" --operator-line "Top finding: Replay mode is not discoverable"`
+- If you have multiple findings, repeat `--finding-json` once per finding object. Do NOT pass a JSON array as one finding.
 - If follow-up developer work is needed, you MUST call HANDOFF_HELPER as a concrete command, for example:
-  `python3 "$HANDOFF_HELPER" --path "$HANDOFF_PATH" --source-queue-item-id "$QUEUE_ITEM_ID" --source-role reviewer --target-role developer --project "$PROJECT" --repo-path "$REPO_PATH" --branch "$BRANCH" --base "$BASE_BRANCH" --goal "<goal>" --check "./check.sh" --finding-json '<json>'`
+  `python3 "$HANDOFF_HELPER" --path "$HANDOFF_PATH" --source-queue-item-id "$QUEUE_ITEM_ID" --source-role reviewer --target-role developer --project "$PROJECT" --repo-path "$REPO_PATH" --branch "$BRANCH" --base "$BASE_BRANCH" --goal "<goal>" --check "./check.sh" --finding-json '{"id":"PICV-REVIEW-001","title":"Replay mode is not discoverable","detail":"README lacks a replay example","acceptance":"Add a replay-mode run example and note key constraints"}'`
 
 Discord/operator output format:
 - First line must begin with: `Reviewer ›`
