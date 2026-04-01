@@ -1,0 +1,204 @@
+# Artifact Contracts
+
+This document defines the mechanics-facing artifact contracts used by `agentrunner`.
+
+These artifacts are the deterministic boundary between:
+- the **cognition layer** (agent turns)
+- the **mechanics layer** (`invoker.py`, queue/tick bookkeeping)
+
+File presence alone is **not** considered success.
+An artifact must both:
+1. exist
+2. match the expected contract shape
+
+## Canonical helper interface
+Workers should write artifacts via:
+- `agentrunner/scripts/emit_result.py`
+- `agentrunner/scripts/emit_handoff.py`
+
+There is no legacy `write_*` helper contract.
+
+## Result artifact contract
+A result artifact is written to the `RESULT_PATH` supplied by mechanics.
+
+### Common required fields
+All result artifacts must include:
+- `status` — string
+- `role` — string, one of:
+  - `developer`
+  - `reviewer`
+  - `manager`
+  - `merger`
+  - `architect`
+- `summary` — non-empty string
+- `checks` — list
+- `writtenAt` — ISO-8601 timestamp string
+
+### Accepted statuses
+Current accepted values:
+- `ok`
+- `blocked`
+- `error`
+- `completed`
+
+### `checks` shape
+`checks` must be a list of objects.
+Each check object must contain:
+- `name` — non-empty string
+- `status` — non-empty string
+
+Other check fields may be present, but mechanics currently only requires the above.
+
+## Developer result contract
+Developer result artifacts must include everything in the common contract, plus:
+- `commit` — required key
+  - may be a string SHA/ref
+  - may be `null` when explicitly no commit was made
+
+Optional but supported:
+- `requestExtraDevTurn` — boolean
+- `requestReason` — string/null
+- `operatorSummary` — string
+- `findings` — list (usually empty for Developer)
+
+### Minimal valid example
+```json
+{
+  "status": "ok",
+  "role": "developer",
+  "summary": "Updated docs and reran checks.",
+  "commit": "abc1234",
+  "checks": [
+    {"name": "./check.sh", "status": "ok"}
+  ],
+  "writtenAt": "2026-04-01T15:00:00+11:00"
+}
+```
+
+## Reviewer result contract
+Reviewer result artifacts must include everything in the common contract, plus:
+- `approved` — boolean
+- `findings` — list
+  - may be empty when approved / no findings
+  - when present, items should be objects
+
+Optional but supported:
+- `requestExtraDevTurn` — boolean
+- `requestReason` — string/null
+- `operatorSummary` — string
+
+### Finding shape
+Mechanics currently requires each finding to be an object.
+Recommended fields include:
+- `title`
+- `detail`
+- `acceptance` or `acceptanceCriteria`
+- `severity`
+
+### Minimal valid example
+```json
+{
+  "status": "blocked",
+  "role": "reviewer",
+  "summary": "One follow-up fix is still needed.",
+  "approved": false,
+  "checks": [],
+  "findings": [
+    {
+      "title": "README lacks replay usage",
+      "detail": "The new CLI path is not documented.",
+      "acceptance": "Add a replay example and dependency note."
+    }
+  ],
+  "writtenAt": "2026-04-01T15:00:00+11:00"
+}
+```
+
+## Handoff artifact contract
+A handoff artifact is written to `HANDOFF_PATH` when a Reviewer requests follow-up Developer work.
+
+## Review findings artifact
+When mechanics inserts a follow-up Developer item, it may also materialize a stable review-findings artifact under the project state directory, e.g.:
+- `/home/openclaw/.agentrunner/projects/<project>/review_findings/<queueItemId>.json`
+
+This file is not the primary completion contract, but it is a deterministic convenience artifact for follow-up Developer turns.
+
+Typical fields:
+- `sourceQueueItemId`
+- `sourceResultPath`
+- `sourceHandoffPath`
+- `requestReason`
+- `findings`
+- `writtenAt`
+
+If present, Developer turns should prefer this structured artifact over prose/history when interpreting Reviewer intent.
+
+### Required fields
+A handoff artifact must include:
+- `sourceQueueItemId` — non-empty string
+- `sourceRole` — non-empty string
+- `targetRole` — non-empty string
+- `project` — non-empty string
+- `goal` — non-empty string
+- `checks` — list
+- `findings` — list
+- `contextFiles` — list
+- `writtenAt` — ISO-8601 timestamp string
+
+### Optional fields
+- `repoPath`
+- `branch`
+- `base`
+- `constraints` — object
+
+### Minimal valid example
+```json
+{
+  "sourceQueueItemId": "picv-r-999",
+  "sourceRole": "reviewer",
+  "targetRole": "developer",
+  "project": "picv_spike",
+  "repoPath": "/home/openclaw/projects/picv_spike",
+  "branch": "feature/picv_spike/replay-mode",
+  "base": "master",
+  "goal": "Document replay mode in README.",
+  "checks": ["./check.sh"],
+  "findings": [
+    {
+      "title": "Replay mode is undocumented",
+      "detail": "README does not mention --input-video",
+      "acceptance": "Add a minimal replay example and dependency note."
+    }
+  ],
+  "constraints": {"timeboxMin": 8},
+  "contextFiles": ["README.md", "check.sh"],
+  "writtenAt": "2026-04-01T15:00:00+11:00"
+}
+```
+
+## Mechanics behavior on invalid artifacts
+If an artifact is malformed or under-specified:
+- mechanics does **not** treat it as success
+- the run is marked `blocked`
+- a tick is appended describing the contract failure
+- operator output reports a concise validation failure
+
+### Examples of invalid conditions
+- result artifact is not valid JSON
+- `summary` missing or empty
+- Developer result missing `commit` key
+- Reviewer result missing boolean `approved`
+- Reviewer result missing `findings` list
+- Reviewer requested follow-up work but no valid handoff artifact was produced
+- `writtenAt` is missing or not parseable as ISO timestamp
+
+## Normalization notes
+Current mechanics behavior may normalize the expected role into the result artifact when the role is omitted, but workers should still emit `role` explicitly.
+
+Treat normalization as a small guardrail, not a contract to lean on.
+
+## Practical guidance
+If you are updating prompts/helpers/mechanics:
+- do not weaken the artifact contract casually
+- prefer explicit fields over inferred meaning
+- treat artifact validation as part of the scheduler boundary, not presentation logic

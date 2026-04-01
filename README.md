@@ -17,7 +17,7 @@ Runtime state lives in **`/home/openclaw/.agentrunner/`** (one subdir per projec
 - Bounded autonomy (limits on extra dev turns)
 
 ## Layout
-- `agentrunner/scripts/` – invoker + utilities
+- `agentrunner/scripts/` – invoker + utilities (canonical artifact helpers: `emit_result.py`, `emit_handoff.py`)
 - `agentrunner/prompts/` – role prompt templates
 - `agentrunner/schemas/` – JSON Schemas
 - `agentrunner/docs/` – architecture + how-to

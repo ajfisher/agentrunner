@@ -40,7 +40,31 @@ Each worker run MUST end with a single line:
 
 `AGENTRUNNER_RESULT_JSON: { ... }`
 
-And it MUST write the same JSON object to the provided result file path.
+And it MUST write the same JSON object to the provided result file path using the canonical helper path exposed by mechanics:
+- result artifacts: `emit_result.py`
+- handoff artifacts: `emit_handoff.py`
+
+There is no legacy `write_*` helper contract anymore. New runs should treat `emit_*` as the only valid artifact helper interface.
+
+Mechanics-side validation now distinguishes between:
+- file exists
+- file contains valid artifact JSON
+- file contains malformed / under-specified artifact JSON
+
+Current baseline validation:
+- all roles: `status`, `role` (or mechanics-normalized equivalent), `summary`, `checks`, `writtenAt`
+- developer: explicit `commit` key (nullable allowed)
+- reviewer: boolean `approved` and list `findings`
+- reviewer follow-up requests: valid handoff artifact required
+
+For follow-up Developer work, mechanics now also passes explicit reviewer artifact paths when available:
+- `SOURCE_RESULT_PATH`
+- `SOURCE_HANDOFF_PATH`
+- `REVIEW_FINDINGS_PATH`
+
+This reduces reliance on prose/history and gives Developer turns a deterministic place to read Reviewer intent first.
+
+See also: `agentrunner/docs/ARTIFACT_CONTRACTS.md`
 
 ## Operator-facing Discord summaries
 
