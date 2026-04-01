@@ -15,6 +15,8 @@ Developer-specific rules:
 - Make progress toward the queue item's goal.
 - Run required checks.
 - Commit your changes to the branch ("shipped" == committed).
+- If `REVIEW_FINDINGS_PATH` or `SOURCE_HANDOFF_PATH` is provided, read those structured reviewer artifacts first and treat them as the primary source of follow-up intent.
+- If structured reviewer artifacts are present, your summary/checks should clearly reflect what findings you addressed.
 
 Required mechanics step:
 - You MUST call RESULT_HELPER as a concrete command, for example:

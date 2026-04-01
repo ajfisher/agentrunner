@@ -6,6 +6,8 @@ from pathlib import Path
 
 ROOT = Path('/home/openclaw/projects/agentrunner')
 CONFIG_PATH = Path('/home/openclaw/.openclaw/openclaw.json')
+VALID_STATUSES = {'ok', 'blocked', 'error', 'completed'}
+VALID_ROLES = {'developer', 'reviewer', 'manager', 'merger', 'architect'}
 
 
 def iso_now() -> str:
@@ -42,15 +44,6 @@ def gateway_token() -> str | None:
     return (((cfg.get('gateway') or {}).get('auth') or {}).get('token'))
 
 
-
-
-def gateway_token() -> str | None:
-    if os.environ.get('OPENCLAW_GATEWAY_TOKEN'):
-        return os.environ['OPENCLAW_GATEWAY_TOKEN']
-    cfg = load_json(CONFIG_PATH, {})
-    return (((cfg.get('gateway') or {}).get('auth') or {}).get('token'))
-
-
 def gateway_http_invoke(tool: str, args: dict, *, action: str | None = None) -> dict:
     url = os.environ.get('OPENCLAW_GATEWAY_HTTP', 'http://127.0.0.1:18789/tools/invoke')
     token = gateway_token()
@@ -63,7 +56,6 @@ def gateway_http_invoke(tool: str, args: dict, *, action: str | None = None) -> 
         req.add_header('Authorization', f'Bearer {token}')
     with urllib.request.urlopen(req, timeout=30) as resp:
         return json.loads(resp.read().decode())
-
 
 
 def parse_iso(ts: str | None):
@@ -157,21 +149,172 @@ def load_role_prompt(role: str) -> str:
 
 def build_message(queue_item: dict, result_path: str, handoff_path: str | None = None) -> str:
     role_prompt = load_role_prompt(str(queue_item.get('role')))
+    origin = queue_item.get('origin') if isinstance(queue_item.get('origin'), dict) else {}
     handoff_bits = ''
     if handoff_path:
-        handoff_bits = f'HANDOFF_PATH: {handoff_path}\nHANDOFF_HELPER: {ROOT / "agentrunner/scripts/write_handoff.py"}\n\nIf follow-up developer work is needed, write a structured handoff artifact to HANDOFF_PATH using HANDOFF_HELPER.\n\n'
+        handoff_bits = f'HANDOFF_PATH: {handoff_path}\nHANDOFF_HELPER: {ROOT / "agentrunner/scripts/emit_handoff.py"}\n\nIf follow-up developer work is needed, write a structured handoff artifact to HANDOFF_PATH using HANDOFF_HELPER.\n\n'
+
+    reviewer_bits = ''
+    if str(queue_item.get('role')) == 'developer':
+        source_result_path = origin.get('sourceResultPath')
+        source_handoff_path = origin.get('handoffPath')
+        review_findings_path = origin.get('reviewFindingsPath')
+        lines = []
+        if source_result_path:
+            lines.append(f'SOURCE_RESULT_PATH: {source_result_path}')
+        if source_handoff_path:
+            lines.append(f'SOURCE_HANDOFF_PATH: {source_handoff_path}')
+        if review_findings_path:
+            lines.append(f'REVIEW_FINDINGS_PATH: {review_findings_path}')
+        if lines:
+            reviewer_bits = '\n'.join(lines) + '\n\n'
+            reviewer_bits += (
+                'If REVIEW_FINDINGS_PATH or SOURCE_HANDOFF_PATH is present, read those structured reviewer artifacts first before acting.\n'
+                'Treat those files as the primary source of reviewer intent; use prose/history only as backup context.\n\n'
+            )
+
     header = (
         'You are running under agentrunner (mechanics-driven).\n'
         'The mechanics layer owns state/queue/logs; you MUST NOT modify them.\n\n'
         f'RESULT_PATH: {result_path}\n'
-        f'RESULT_HELPER: {ROOT / "agentrunner/scripts/write_result.py"}\n\n'
+        f'RESULT_HELPER: {ROOT / "agentrunner/scripts/emit_result.py"}\n\n'
         'When you finish, write the same JSON object from AGENTRUNNER_RESULT_JSON to RESULT_PATH using RESULT_HELPER.\n\n'
         + handoff_bits
+        + reviewer_bits
     )
     return header + role_prompt + '\nQUEUE_ITEM_JSON:\n' + json.dumps(queue_item, indent=2, ensure_ascii=False)
 
 
-def build_dev_followup_item(base_item: dict | None, *, project: str, requested_by: str, reason: str | None, findings: list | None) -> dict:
+def validate_result_artifact(result: object, *, expected_role: str) -> tuple[dict | None, list[str]]:
+    if not isinstance(result, dict):
+        return None, ['result artifact must be a JSON object']
+    normalized = dict(result)
+    errors: list[str] = []
+
+    role = normalized.get('role')
+    if role is None:
+        normalized['role'] = expected_role
+        role = expected_role
+    if not isinstance(role, str) or role not in VALID_ROLES:
+        errors.append(f'invalid role: {role!r}')
+    elif role != expected_role:
+        errors.append(f'role mismatch: expected {expected_role}, got {role}')
+
+    status = normalized.get('status')
+    if not isinstance(status, str) or status not in VALID_STATUSES:
+        errors.append(f'invalid status: {status!r}')
+
+    written_at = normalized.get('writtenAt')
+    if not isinstance(written_at, str) or parse_iso(written_at) is None:
+        errors.append('writtenAt must be a valid ISO timestamp string')
+
+    summary = normalized.get('summary')
+    if not isinstance(summary, str) or not summary.strip():
+        errors.append('summary must be a non-empty string')
+
+    checks = normalized.get('checks')
+    if not isinstance(checks, list):
+        errors.append('checks must be a list')
+    else:
+        for i, check in enumerate(checks):
+            if not isinstance(check, dict):
+                errors.append(f'checks[{i}] must be an object')
+                continue
+            if not isinstance(check.get('name'), str) or not check.get('name').strip():
+                errors.append(f'checks[{i}].name must be a non-empty string')
+            cstatus = check.get('status')
+            if not isinstance(cstatus, str) or not cstatus.strip():
+                errors.append(f'checks[{i}].status must be a non-empty string')
+
+    if role == 'developer':
+        if 'commit' not in normalized:
+            errors.append('developer result must include commit (nullable is allowed)')
+        elif normalized.get('commit') is not None and not isinstance(normalized.get('commit'), str):
+            errors.append('developer commit must be a string or null')
+    elif role == 'reviewer':
+        if not isinstance(normalized.get('approved'), bool):
+            errors.append('reviewer result must include approved as boolean')
+        findings = normalized.get('findings')
+        if not isinstance(findings, list):
+            errors.append('reviewer result must include findings as a list')
+        else:
+            for i, finding in enumerate(findings):
+                if not isinstance(finding, dict):
+                    errors.append(f'findings[{i}] must be an object')
+
+    request_extra = normalized.get('requestExtraDevTurn', normalized.get('request_extra_dev_turn'))
+    if request_extra is not None and not isinstance(request_extra, bool):
+        errors.append('requestExtraDevTurn must be a boolean when present')
+
+    return normalized, errors
+
+
+def validate_handoff_artifact(handoff: object) -> tuple[dict | None, list[str]]:
+    if not isinstance(handoff, dict):
+        return None, ['handoff artifact must be a JSON object']
+    normalized = dict(handoff)
+    errors: list[str] = []
+
+    required_string_fields = ['sourceQueueItemId', 'sourceRole', 'targetRole', 'project', 'goal', 'writtenAt']
+    for field in required_string_fields:
+        value = normalized.get(field)
+        if not isinstance(value, str) or not value.strip():
+            errors.append(f'{field} must be a non-empty string')
+    if isinstance(normalized.get('writtenAt'), str) and parse_iso(normalized.get('writtenAt')) is None:
+        errors.append('handoff writtenAt must be a valid ISO timestamp string')
+    for field in ['checks', 'findings', 'contextFiles']:
+        value = normalized.get(field)
+        if not isinstance(value, list):
+            errors.append(f'{field} must be a list')
+    constraints = normalized.get('constraints')
+    if constraints is not None and not isinstance(constraints, dict):
+        errors.append('constraints must be an object when present')
+    return normalized, errors
+
+
+def artifact_failure_result(role: str, kind: str, reasons: list[str]) -> dict:
+    prefix = {
+        'developer': 'Developer ›',
+        'reviewer': 'Reviewer ›',
+        'manager': 'Manager ›',
+        'merger': 'Merger ›',
+        'architect': 'Architect ›',
+    }.get(role, f'{role.title()} ›')
+    top = '; '.join(reasons[:3])
+    return {
+        'status': 'blocked',
+        'role': role,
+        'summary': f'{kind} validation failed: {top}',
+        'operatorSummary': '\n'.join([
+            prefix,
+            '- Status: blocked',
+            f'- {kind} validation failed',
+            f'- {top}',
+        ]),
+        'writtenAt': iso_now(),
+        'checks': [],
+        'findings': [],
+    }
+
+
+def materialize_review_findings_artifact(state_dir: str, *, source_queue_item_id: str, result_path: str | None, handoff_path: str | None, findings: list | None, request_reason: str | None) -> str:
+    review_dir = Path(state_dir) / 'review_findings'
+    review_dir.mkdir(parents=True, exist_ok=True)
+    out = review_dir / f'{source_queue_item_id}.json'
+    obj = {
+        'sourceQueueItemId': source_queue_item_id,
+        'sourceResultPath': result_path,
+        'sourceHandoffPath': handoff_path,
+        'requestReason': request_reason,
+        'findings': findings or [],
+        'writtenAt': iso_now(),
+    }
+    save_json(out, obj)
+    return str(out)
+
+
+def build_dev_followup_item(base_item: dict | None, *, project: str, requested_by: str, reason: str | None, findings: list | None,
+                            source_result_path: str | None = None, handoff_path: str | None = None, review_findings_path: str | None = None) -> dict:
     now = iso_now()
     suffix = 'followup'
     item_id = f"{requested_by}-{suffix}"
@@ -182,15 +325,26 @@ def build_dev_followup_item(base_item: dict | None, *, project: str, requested_b
             if isinstance(f, dict):
                 title = f.get('title') or 'Finding'
                 detail = f.get('detail') or ''
-                acceptance = f.get('acceptance') or ''
+                acceptance = f.get('acceptance') or f.get('acceptanceCriteria') or ''
                 bit = f"- {title}"
                 if detail:
                     bit += f": {detail}"
                 if acceptance:
+                    if isinstance(acceptance, list):
+                        acceptance = '; '.join(str(x) for x in acceptance)
                     bit += f"\n  Acceptance: {acceptance}"
                 bullet_lines.append(bit)
         if bullet_lines:
             clean_goal = clean_goal + "\n\nReviewer findings to address:\n" + "\n".join(bullet_lines)
+
+    origin = {
+        'requestedBy': requested_by,
+        'reason': reason,
+        'findings': findings or [],
+        'sourceResultPath': source_result_path,
+        'handoffPath': handoff_path,
+        'reviewFindingsPath': review_findings_path,
+    }
 
     if isinstance(base_item, dict):
         extra_item = dict(base_item)
@@ -198,8 +352,7 @@ def build_dev_followup_item(base_item: dict | None, *, project: str, requested_b
         extra_item['createdAt'] = now
         extra_item['role'] = 'developer'
         extra_item['goal'] = clean_goal
-        extra_item['origin'] = {'requestedBy': requested_by, 'reason': reason, 'findings': findings or []}
-        # Ensure dev follow-up uses dev-friendly checks if present; otherwise preserve existing checks.
+        extra_item['origin'] = origin
         return extra_item
 
     return {
@@ -208,11 +361,15 @@ def build_dev_followup_item(base_item: dict | None, *, project: str, requested_b
         'role': 'developer',
         'createdAt': now,
         'goal': clean_goal,
-        'origin': {'requestedBy': requested_by, 'reason': reason, 'findings': findings or []},
+        'origin': origin,
     }
 
 
 def format_operator_summary(role: str, result: dict) -> str:
+    explicit = result.get('operatorSummary')
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit.strip()
+
     prefix = {
         'developer': 'Developer ›',
         'reviewer': 'Reviewer ›',
@@ -232,7 +389,7 @@ def format_operator_summary(role: str, result: dict) -> str:
         if commit:
             lines.append(f'- Commit: {commit}')
         checks = result.get('checks') or []
-        ok = [c.get('name') for c in checks if isinstance(c, dict) and c.get('status') == 'ok']
+        ok = [c.get('name') for c in checks if isinstance(c, dict) and c.get('status') in ('ok', 'passed')]
         if ok:
             lines.append(f'- Checks: {", ".join(ok[:2])} passed')
         if result.get('requestExtraDevTurn') or result.get('request_extra_dev_turn'):
@@ -248,8 +405,10 @@ def format_operator_summary(role: str, result: dict) -> str:
             if isinstance(top, dict):
                 title = top.get('title') or 'Finding'
                 lines.append(f'- Top finding: {title}')
-                acc = top.get('acceptance')
+                acc = top.get('acceptance') or top.get('acceptanceCriteria')
                 if acc:
+                    if isinstance(acc, list):
+                        acc = '; '.join(str(x) for x in acc)
                     lines.append(f'- Acceptance: {acc}')
         if result.get('requestExtraDevTurn') or result.get('request_extra_dev_turn'):
             rr = result.get('requestReason') or result.get('request_reason')
@@ -261,7 +420,7 @@ def format_operator_summary(role: str, result: dict) -> str:
         commit = result.get('commit')
         if commit:
             lines.append(f'- Commit: {commit}')
-    return "\n".join(lines[:6])
+    return '\n'.join(lines[:6])
 
 
 def send_operator_summary(channel: str, to: str, role: str, result: dict) -> None:
@@ -270,6 +429,35 @@ def send_operator_summary(channel: str, to: str, role: str, result: dict) -> Non
         gateway_http_invoke('message', {'action': 'send', 'channel': channel, 'target': to, 'message': msg}, action='send')
     except Exception as e:
         debug_log(f'[invoker] failed to send operator summary: {e}')
+
+
+def finish_current_run(state_dir: str, state: dict, *, cur: dict, status: str, result: dict, role: str, qid: str) -> None:
+    if Path(state_dir, 'queue_events.ndjson').exists() and qid:
+        append_queue_event(state_dir, 'DONE', id=str(qid), status=str(status))
+    append_tick(state_dir, {
+        'project': state.get('project'),
+        'queueItemId': qid,
+        'role': role,
+        'status': status,
+        'runId': cur.get('runId'),
+        'sessionKey': cur.get('sessionKey'),
+        'result': result,
+        'summary': result.get('summary'),
+    })
+    if cur.get('announce') and cur.get('channel') and cur.get('to'):
+        send_operator_summary(cur.get('channel'), cur.get('to'), str(role), result)
+    state['running'] = False
+    state['updatedAt'] = iso_now()
+    state['lastCompleted'] = {
+        'queueItemId': qid,
+        'role': role,
+        'runId': cur.get('runId'),
+        'sessionKey': cur.get('sessionKey'),
+        'endedAt': iso_now(),
+        'status': status,
+    }
+    state['current'] = None
+    save_json(Path(state_dir) / 'state.json', state)
 
 
 def poll_completion(state_dir: str, state: dict) -> bool:
@@ -307,28 +495,57 @@ def poll_completion(state_dir: str, state: dict) -> bool:
         state['updatedAt'] = iso_now()
         save_json(Path(state_dir) / 'state.json', state)
         return False
-    result = json.loads(Path(result_path).read_text())
-    qid = cur.get('queueItemId')
-    role = cur.get('role')
-    status = result.get('status', 'ok')
-    if Path(state_dir, 'queue_events.ndjson').exists() and qid:
-        append_queue_event(state_dir, 'DONE', id=str(qid), status=str(status))
-    append_tick(state_dir, {
-        'project': state.get('project'), 'queueItemId': qid, 'role': role,
-        'status': status, 'runId': cur.get('runId'), 'sessionKey': cur.get('sessionKey'),
-        'result': result, 'summary': result.get('summary')
-    })
-    if cur.get('announce') and cur.get('channel') and cur.get('to'):
-        send_operator_summary(cur.get('channel'), cur.get('to'), str(role), result)
+
+    qid = str(cur.get('queueItemId'))
+    role = str(cur.get('role'))
+
+    try:
+        raw_result = json.loads(Path(result_path).read_text())
+    except Exception as e:
+        failure = artifact_failure_result(role, 'result artifact', [f'invalid JSON: {e}'])
+        finish_current_run(state_dir, state, cur=cur, status='blocked', result=failure, role=role, qid=qid)
+        return True
+
+    result, result_errors = validate_result_artifact(raw_result, expected_role=role)
+    if result_errors or result is None:
+        failure = artifact_failure_result(role, 'result artifact', result_errors or ['unknown validation failure'])
+        finish_current_run(state_dir, state, cur=cur, status='blocked', result=failure, role=role, qid=qid)
+        return True
+
     handoff_path = cur.get('handoffPath')
     handoff_obj = None
     if handoff_path and Path(handoff_path).exists():
-        handoff_obj = json.loads(Path(handoff_path).read_text())
+        try:
+            raw_handoff = json.loads(Path(handoff_path).read_text())
+        except Exception as e:
+            failure = artifact_failure_result(role, 'handoff artifact', [f'invalid JSON: {e}'])
+            finish_current_run(state_dir, state, cur=cur, status='blocked', result=failure, role=role, qid=qid)
+            return True
+        handoff_obj, handoff_errors = validate_handoff_artifact(raw_handoff)
+        if handoff_errors or handoff_obj is None:
+            failure = artifact_failure_result(role, 'handoff artifact', handoff_errors or ['unknown validation failure'])
+            finish_current_run(state_dir, state, cur=cur, status='blocked', result=failure, role=role, qid=qid)
+            return True
 
     request_extra = result.get('requestExtraDevTurn', result.get('request_extra_dev_turn'))
     request_reason = result.get('requestReason', result.get('request_reason'))
+    if role == 'reviewer' and request_extra and handoff_path and handoff_obj is None:
+        failure = artifact_failure_result(role, 'handoff artifact', ['reviewer requested follow-up developer work but no valid handoff artifact was produced'])
+        finish_current_run(state_dir, state, cur=cur, status='blocked', result=failure, role=role, qid=qid)
+        return True
+
+    status = str(result.get('status', 'ok'))
+    finish_current_run(state_dir, state, cur=cur, status=status, result=result, role=role, qid=qid)
 
     if handoff_obj is not None:
+        review_findings_path = materialize_review_findings_artifact(
+            state_dir,
+            source_queue_item_id=qid,
+            result_path=result_path,
+            handoff_path=handoff_path,
+            findings=handoff_obj.get('findings', []),
+            request_reason=request_reason,
+        )
         extra_item = {
             'id': f"{qid}-followup-1",
             'project': handoff_obj.get('project', state.get('project')),
@@ -341,7 +558,13 @@ def poll_completion(state_dir: str, state: dict) -> bool:
             'checks': handoff_obj.get('checks', []),
             'constraints': handoff_obj.get('constraints', {}),
             'contextFiles': handoff_obj.get('contextFiles', []),
-            'origin': {'requestedBy': qid, 'handoff': handoff_path, 'findings': handoff_obj.get('findings', [])},
+            'origin': {
+                'requestedBy': qid,
+                'handoffPath': handoff_path,
+                'sourceResultPath': result_path,
+                'reviewFindingsPath': review_findings_path,
+                'findings': handoff_obj.get('findings', []),
+            },
         }
         if Path(state_dir, 'queue_events.ndjson').exists():
             append_queue_event(state_dir, 'INSERT_FRONT', item=extra_item)
@@ -349,19 +572,32 @@ def poll_completion(state_dir: str, state: dict) -> bool:
             q = load_json(Path(state_dir) / 'queue.json', [])
             q.insert(0, extra_item)
             save_json(Path(state_dir) / 'queue.json', q)
+        state = load_json(Path(state_dir) / 'state.json', state)
         state.setdefault('runtime', {})['extraDevTurnsUsed'] = int((state.get('runtime') or {}).get('extraDevTurnsUsed') or 0) + 1
+        save_json(Path(state_dir) / 'state.json', state)
     elif request_extra:
         used = int((state.get('runtime') or {}).get('extraDevTurnsUsed') or 0)
         max_extra = int((state.get('limits') or {}).get('maxExtraDevTurns') or 1)
         if used < max_extra:
             base_item = cur.get('queueItem')
             findings = result.get('findings') if isinstance(result, dict) else None
+            review_findings_path = materialize_review_findings_artifact(
+                state_dir,
+                source_queue_item_id=qid,
+                result_path=result_path,
+                handoff_path=handoff_path,
+                findings=findings if isinstance(findings, list) else [],
+                request_reason=request_reason,
+            )
             extra_item = build_dev_followup_item(
                 base_item,
                 project=state.get('project'),
                 requested_by=str(qid),
                 reason=request_reason if isinstance(result, dict) else None,
                 findings=findings if isinstance(findings, list) else None,
+                source_result_path=result_path,
+                handoff_path=handoff_path,
+                review_findings_path=review_findings_path,
             )
             if Path(state_dir, 'queue_events.ndjson').exists():
                 append_queue_event(state_dir, 'INSERT_FRONT', item=extra_item)
@@ -369,13 +605,10 @@ def poll_completion(state_dir: str, state: dict) -> bool:
                 q = load_json(Path(state_dir) / 'queue.json', [])
                 q.insert(0, extra_item)
                 save_json(Path(state_dir) / 'queue.json', q)
+            state = load_json(Path(state_dir) / 'state.json', state)
             state.setdefault('runtime', {})['extraDevTurnsUsed'] = used + 1
+            save_json(Path(state_dir) / 'state.json', state)
 
-    state['running'] = False
-    state['updatedAt'] = iso_now()
-    state['lastCompleted'] = {'queueItemId': qid, 'role': role, 'runId': cur.get('runId'), 'sessionKey': cur.get('sessionKey'), 'endedAt': iso_now(), 'status': status}
-    state['current'] = None
-    save_json(Path(state_dir) / 'state.json', state)
     return True
 
 
@@ -435,7 +668,19 @@ def main() -> int:
     state['runtime']['lastBranch'] = item_branch
     state['running'] = True
     state['updatedAt'] = iso_now()
-    state['current'] = {'queueItemId': qid, 'role': item.get('role'), 'queueItem': item, 'runId': run_id, 'sessionKey': session_key, 'startedAt': iso_now(), 'resultPath': result_path}
+    state['current'] = {
+        'queueItemId': qid,
+        'role': item.get('role'),
+        'queueItem': item,
+        'runId': run_id,
+        'sessionKey': session_key,
+        'startedAt': iso_now(),
+        'resultPath': result_path,
+        'handoffPath': handoff_path,
+        'announce': bool(args.announce),
+        'channel': args.channel,
+        'to': args.to,
+    }
     save_json(queue_path, queue)
     save_json(state_path, state)
     return 0
