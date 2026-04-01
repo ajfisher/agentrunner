@@ -90,10 +90,19 @@ Optional but supported:
 ### Finding shape
 Mechanics currently requires each finding to be an object.
 Recommended fields include:
+- `id`
 - `title`
-- `detail`
+- `detail` or `body`
 - `acceptance` or `acceptanceCriteria`
 - `severity`
+
+Important:
+- `findings` must be a **flat list of objects**
+- not `[[]]`
+- not `[{"findings": [...]}]`
+- when using `emit_result.py`, pass one `--finding-json` flag per finding object
+
+`emit_result.py` now defensively flattens accidental nested finding arrays / single-key `{ "findings": [...] }` wrappers, but prompts and workers should still emit the flat shape directly.
 
 ### Minimal valid example
 ```json

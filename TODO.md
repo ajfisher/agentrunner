@@ -82,6 +82,7 @@ Phase 4 single-item proof is now complete; Phase 5 is the next live proof target
 - [x] Document deterministic session-key scheme (`hook:agentrunner:<project>:<queueItemId>`)
 - [ ] Add a concise lifecycle diagram: queue item → invoker → hook run → validated result file → tick append → unlock
 - [x] Add implementation notes capturing the phased hardening plan and rationale
+- [x] Capture chained-proof notes and failure modes for future reruns
 
 ### 7) Merge primitive
 - [ ] Exercise Merger role on a dummy or low-risk real branch
@@ -100,6 +101,13 @@ Phase 4 single-item proof is now complete; Phase 5 is the next live proof target
 Recommended working order:
 1. singular helper contract
 2. mechanics-side artifact validation
+3. deterministic developer consumption of reviewer artifacts
+4. single-item proof run
+5. small chained proof
+6. broader autonomy / merger work later
+
+Do **not** jump straight into bigger chained autonomy runs until the completion/finalization contract is mechanically trustworthy.
+ validation
 3. deterministic developer consumption of reviewer artifacts
 4. single-item proof run
 5. small chained proof
