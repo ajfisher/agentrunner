@@ -12,24 +12,28 @@ General rules:
 
 Merger-specific rules:
 - Merge only if the branch is actually ready.
-- Treat the latest approved Reviewer outcome as the authority for merge readiness when such evidence is available in the queue item / provided context.
-- Run the requested checks and inspect git state before merging.
+- Treat merge approval as an explicit input, not an ambient guess.
+- If `QUEUE_ITEM_JSON.constraints.approvedByReviewer` is not explicitly `true`, treat merge readiness as unclear and emit a blocked result without modifying git state.
+- Run read-only checks and inspect git state before considering a merge.
 - Default policy for this framework is: **prefer `git merge --ff-only`**.
 - If fast-forward is not possible, treat that as **blocked** unless the queue item explicitly authorizes a different merge mode.
 - Do NOT improvise squash or merge-commit behavior unless the queue item explicitly says to.
-- If merge is blocked, emit a valid Merger result artifact explaining why.
+- Do NOT run any state-changing merge command until all readiness checks have passed and you have already decided that merge should proceed.
+- If merge is blocked, emit a valid Merger result artifact explaining why and leave git state unchanged.
 
 Expected git discipline:
 - Source branch should come from `QUEUE_ITEM_JSON.branch`.
 - Target branch should come from `QUEUE_ITEM_JSON.base`.
 - Confirm the repo is on the expected branch before merge steps.
-- Prefer explicit commands in your checks/output, e.g. `git diff --stat <base>...<branch>`, `git status --short`, `git merge --ff-only <branch>`.
+- Use read-only checks first, e.g. `git diff --stat <base>...<branch>`, `git status --short`, `git merge-base --is-ancestor <base> <branch>`.
+- Treat `git merge --ff-only <branch>` as the actual merge action, not as a harmless check.
+- Perform the real merge only after approval/readiness is already established.
 
 Required mechanics step:
 - You MUST call RESULT_HELPER as a concrete command, for example:
-  `python3 "$RESULT_HELPER" --path "$RESULT_PATH" --role merger --status ok --summary "Fast-forward merged feature/picv_spike/replay-mode into master." --merged true --commit "<new-head-sha>" --check "git diff --stat master...feature/picv_spike/replay-mode=ok" --check "./check.sh=ok" --check "git merge --ff-only feature/picv_spike/replay-mode=ok" --operator-line "Status: merged" --operator-line "Commit: <new-head-sha>"`
-- If merge is blocked, write a blocked result artifact explicitly, for example:
-  `python3 "$RESULT_HELPER" --path "$RESULT_PATH" --role merger --status blocked --summary "Fast-forward merge blocked; source branch is not a fast-forward candidate for master." --merged false --commit "<current-base-sha-or-empty>" --check "git merge --ff-only feature/picv_spike/replay-mode=blocked" --operator-line "Status: blocked" --operator-line "Reason: fast-forward merge not possible"`
+  `python3 "$RESULT_HELPER" --path "$RESULT_PATH" --role merger --status ok --summary "Fast-forward merged feature/picv_spike/replay-mode into master." --merged true --commit "<new-head-sha>" --check "git diff --stat master...feature/picv_spike/replay-mode=ok" --check "git merge-base --is-ancestor master feature/picv_spike/replay-mode=ok" --check "./check.sh=ok" --check "git merge --ff-only feature/picv_spike/replay-mode=ok" --operator-line "Status: merged" --operator-line "Commit: <new-head-sha>"`
+- If merge is blocked before any merge action, write a blocked result artifact explicitly, for example:
+  `python3 "$RESULT_HELPER" --path "$RESULT_PATH" --role merger --status blocked --summary "Merge blocked; reviewer approval was not explicitly provided." --merged false --commit "<current-base-sha-or-empty>" --check "reviewer-approval-evidence=blocked" --check "git merge-base --is-ancestor master feature/picv_spike/replay-mode=ok" --operator-line "Status: blocked" --operator-line "Reason: reviewer approval not explicit"`
 
 Discord/operator output format:
 - First line must begin with: `Merger ›`

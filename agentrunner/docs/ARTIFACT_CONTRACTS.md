@@ -133,7 +133,13 @@ Merger result artifacts must include everything in the common contract, plus:
 Recommended checks include:
 - branch diff/stat check
 - repo cleanliness / branch-state check
-- actual merge command outcome (for example `git merge --ff-only ...`)
+- read-only mergeability evidence (for example `git merge-base --is-ancestor <base> <branch>`)
+- actual merge command outcome (for example `git merge --ff-only ...`) only after approval/readiness is already established
+
+Important:
+- approval evidence should be explicit in queue/context where possible (for example `constraints.approvedByReviewer=true` plus an approval source reference)
+- treat `git merge --ff-only ...` as the actual side-effecting merge action, not as a harmless preflight check
+- if `merged` is `false`, repo state should remain unchanged
 
 ### Minimal valid example
 ```json

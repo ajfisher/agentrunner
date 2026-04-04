@@ -85,8 +85,11 @@ Phase 4 single-item proof is now complete; Phase 5 is the next live proof target
 - [x] Capture chained-proof notes and failure modes for future reruns
 
 ### 7) Merge primitive
-- [ ] Exercise Merger role on a dummy or low-risk real branch
+- [x] Exercise Merger role on a dummy or low-risk real branch
+  - first ff-only proof exposed a sequencing bug: blocked artifact was emitted after repo state had already changed
 - [ ] Confirm merge bookkeeping lands cleanly in ticks/logs
+- [ ] Require explicit reviewer approval evidence in merger queue items / prompt contract
+- [ ] Re-run Merger proof after side-effect sequencing hardening
 
 ### 8) Optional niceties
 - [ ] Add a small audit/status helper for queue events + result files + last ticks in one view
