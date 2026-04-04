@@ -123,6 +123,36 @@ Important:
 }
 ```
 
+## Merger result contract
+Merger result artifacts must include everything in the common contract, plus:
+- `merged` — boolean
+- `commit` — required key
+  - should be the new target-branch HEAD on successful merge
+  - may be `null` if merge did not happen
+
+Recommended checks include:
+- branch diff/stat check
+- repo cleanliness / branch-state check
+- actual merge command outcome (for example `git merge --ff-only ...`)
+
+### Minimal valid example
+```json
+{
+  "status": "ok",
+  "role": "merger",
+  "summary": "Fast-forward merged feature/picv_spike/replay-mode into master.",
+  "merged": true,
+  "commit": "deadbeef1234",
+  "checks": [
+    {"name": "git diff --stat master...feature/picv_spike/replay-mode", "status": "ok"},
+    {"name": "git merge --ff-only feature/picv_spike/replay-mode", "status": "ok"}
+  ],
+  "writtenAt": "2026-04-04T14:45:00+11:00"
+}
+```
+
+If merge is blocked, emit a normal blocked result artifact rather than failing silently.
+
 ## Handoff artifact contract
 A handoff artifact is written to `HANDOFF_PATH` when a Reviewer requests follow-up Developer work.
 

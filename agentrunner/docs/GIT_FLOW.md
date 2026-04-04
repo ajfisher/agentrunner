@@ -8,6 +8,10 @@ We model a standard feature flow even before GitHub:
 3) Manager decides whether to iterate or mark ready.
 4) Merger merges to main.
 
+Current default merge policy for local autonomous runs:
+- prefer **fast-forward only** merges
+- if fast-forward is not possible, treat the merge as **blocked** unless the queue item explicitly authorizes another strategy
+
 Key: **"shipped" == committed on a branch**. If work is only in a stash, it's not shipped.
 
 ## Default branch naming convention
