@@ -365,6 +365,27 @@ def build_dev_followup_item(base_item: dict | None, *, project: str, requested_b
     }
 
 
+def _needs_merger_passback_hint(result: dict) -> bool:
+    if result.get('status') != 'blocked':
+        return False
+    if result.get('merged') is not False:
+        return False
+
+    checks = result.get('checks') or []
+    for check in checks:
+        if not isinstance(check, dict):
+            continue
+        name = str(check.get('name') or '').lower()
+        status = str(check.get('status') or '').lower()
+        if status != 'blocked':
+            continue
+        if 'git merge-base --is-ancestor' in name or 'merge-policy ff-only' in name:
+            return True
+
+    summary = str(result.get('summary') or '').lower()
+    return 'ff-only' in summary or 'fast-forward only' in summary or 'non-fast-forward' in summary
+
+
 def format_operator_summary(role: str, result: dict) -> str:
     explicit = result.get('operatorSummary')
     if isinstance(explicit, str) and explicit.strip():
@@ -420,6 +441,8 @@ def format_operator_summary(role: str, result: dict) -> str:
         commit = result.get('commit')
         if commit:
             lines.append(f'- Commit: {commit}')
+        if _needs_merger_passback_hint(result):
+            lines.append('- Next step: hand this back to Developer for a rebase/passback fix, then re-review and retry merge')
     return '\n'.join(lines[:6])
 
 

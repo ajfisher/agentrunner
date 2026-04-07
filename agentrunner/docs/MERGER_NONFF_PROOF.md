@@ -82,3 +82,5 @@ It is **post-block behavior**:
 
 Current likely candidate:
 - a Developer passback / rebase task, followed by re-review and a second merge attempt.
+
+Operator-facing blocked summaries should surface that recovery path directly so the next action is obvious at handoff time.

@@ -159,6 +159,8 @@ Important:
 
 If merge is blocked, emit a normal blocked result artifact rather than failing silently.
 
+For ff-only blocks caused by divergence / non-fast-forward state, operator-facing summaries should include a concise recovery hint that the branch likely needs a Developer passback/rebase step before re-review + merge retry.
+
 ## Handoff artifact contract
 A handoff artifact is written to `HANDOFF_PATH` when a Reviewer requests follow-up Developer work.
 
