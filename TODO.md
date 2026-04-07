@@ -115,19 +115,8 @@ Completed proof ladder so far:
 5. small chained proof
 6. constrained ff-only merger proof
 7. constrained non-fast-forward blocked merger proof
+8. constrained passback/rebase recovery proof
+9. constrained recovery-loop closure proof
+10. first bounded self-hosting real-task run (`agentrunner` passback-suggestion change)
 
-Next: test post-block passback behavior rather than re-proving the same mechanics.
-ed proof
-6. broader autonomy / merger work later
-
-Do **not** jump straight into bigger chained autonomy runs until the completion/finalization contract is mechanically trustworthy.
- validation
-3. deterministic developer consumption of reviewer artifacts
-4. single-item proof run
-5. small chained proof
-6. broader autonomy / merger work later
-
-Do **not** jump straight into bigger chained autonomy runs until the completion/finalization contract is mechanically trustworthy.
-e completion/finalization contract is mechanically trustworthy.
-contract is mechanically trustworthy.
-e completion/finalization contract is mechanically trustworthy.
+Next: choose the next bounded real task and keep moving one item forward at a time.
