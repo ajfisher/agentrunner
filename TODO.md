@@ -50,32 +50,36 @@ Goal: follow-up dev turns should consume structured reviewer artifacts directly,
 - [x] Decide whether to materialize a stable project-local findings artifact (e.g. `review_findings.json`)
   - implemented as per-run state artifacts under `review_findings/<queueItemId>.json`
 - [x] Ensure reviewer → developer follow-up items remain cleanly developer-shaped in all cases
-- [ ] Verify developer summaries/checks clearly map back to reviewer findings addressed
+- [x] Verify developer summaries/checks clearly map back to reviewer findings addressed
+  - proven by the artifact-driven chained proof follow-up on `picv_spike`
 
 ### 4) Narrow proof: single-item harness test (Phase 4)
 Goal: prove dispatch → artifact emission → validation → tick append → unlock in isolation.
 
-- [ ] Run one **single Developer item** against `picv_spike` with a tiny bounded goal
-- [ ] Prefer a low-cognition task (docs-only, no-op confirmation, or similarly boring proof)
-- [ ] Acceptance criteria:
+- [x] Run one **single Developer item** against `picv_spike` with a tiny bounded goal
+- [x] Prefer a low-cognition task (docs-only, no-op confirmation, or similarly boring proof)
+- [x] Acceptance criteria:
   - hook run starts cleanly
   - result artifact appears
   - artifact passes validation
   - `ticks.ndjson` is updated correctly
   - operator summary is concise and correct
   - queue unlocks cleanly
-- [ ] Capture the run as the canonical proof for the completion/finalization path
+- [x] Capture the run as the canonical proof for the completion/finalization path
+  - see `agentrunner/docs/SINGLE_ITEM_PROOF_RUN.md`
 
 ### 5) Small chained proof after the single-item pass (Phase 5)
 Goal: prove one minimal handoff cycle only after the completion contract is trustworthy.
 
-Phase 4 single-item proof is now complete; Phase 5 is the next live proof target.
+Phase 5 constrained proof is complete on `picv_spike`.
 
-- [ ] Run a small `Reviewer → Developer` or `Reviewer → Developer → Reviewer` test after Phase 4 passes
-- [ ] Verify reviewer emits structured findings cleanly
-- [ ] Verify handoff artifact is valid and consumed by Developer deterministically
-- [ ] Confirm result artifacts, queue events, and `ticks.ndjson` remain in sync across the sequence
-- [ ] Prefer a narrow PiCV test case over a broad “real work” run
+- [x] Run a small `Reviewer → Developer` or `Reviewer → Developer → Reviewer` test after Phase 4 passes
+- [x] Verify reviewer emits structured findings cleanly
+- [x] Verify handoff artifact is valid and consumed by Developer deterministically
+- [x] Confirm result artifacts, queue events, and `ticks.ndjson` remain in sync across the sequence
+- [x] Prefer a narrow PiCV test case over a broad “real work” run
+- [x] Tighten chained-proof pattern so reviewer-generated follow-up items are not duplicated by pre-seeded generic Developer queue items
+- [x] Re-run a chained proof after the reviewer findings-shape guardrails to confirm clean end-to-end success
 
 ### 6) Docs + architecture hygiene
 - [x] Update docs to reflect that `/hooks/agent` + result files is the primary dispatch/completion path
@@ -86,10 +90,12 @@ Phase 4 single-item proof is now complete; Phase 5 is the next live proof target
 
 ### 7) Merge primitive
 - [x] Exercise Merger role on a dummy or low-risk real branch
-  - first ff-only proof exposed a sequencing bug: blocked artifact was emitted after repo state had already changed
-- [ ] Confirm merge bookkeeping lands cleanly in ticks/logs
-- [ ] Require explicit reviewer approval evidence in merger queue items / prompt contract
-- [ ] Re-run Merger proof after side-effect sequencing hardening
+  - first ff-only proof exposed a sequencing bug and produced useful hardening notes
+- [x] Confirm merge bookkeeping lands cleanly in ticks/logs
+- [x] Require explicit reviewer approval evidence in merger queue items / prompt contract
+- [x] Re-run Merger proof after side-effect sequencing hardening
+  - successful constrained rerun captured in `agentrunner/docs/MERGER_PROOF_SUCCESS.md`
+- [ ] Explore non-fast-forward handling / rebase-passback behavior as a later follow-on experiment
 
 ### 8) Optional niceties
 - [ ] Add a small audit/status helper for queue events + result files + last ticks in one view
@@ -101,12 +107,17 @@ Phase 4 single-item proof is now complete; Phase 5 is the next live proof target
 - [x] Tighten operator summaries to short bullets instead of long mixed prose+machine payloads
 
 ## Execution note
-Recommended working order:
+Completed proof ladder so far:
 1. singular helper contract
 2. mechanics-side artifact validation
 3. deterministic developer consumption of reviewer artifacts
 4. single-item proof run
 5. small chained proof
+6. constrained ff-only merger proof
+7. constrained non-fast-forward blocked merger proof
+
+Next: test post-block passback behavior rather than re-proving the same mechanics.
+ed proof
 6. broader autonomy / merger work later
 
 Do **not** jump straight into bigger chained autonomy runs until the completion/finalization contract is mechanically trustworthy.
@@ -117,3 +128,6 @@ Do **not** jump straight into bigger chained autonomy runs until the completion/
 6. broader autonomy / merger work later
 
 Do **not** jump straight into bigger chained autonomy runs until the completion/finalization contract is mechanically trustworthy.
+e completion/finalization contract is mechanically trustworthy.
+contract is mechanically trustworthy.
+e completion/finalization contract is mechanically trustworthy.
