@@ -10,12 +10,20 @@ General rules:
 
 Manager-specific rules:
 - No feature coding.
-- Reweight backlog, set next goals/milestones.
+- Operate at the initiative/bundle level, not the line-by-line code-review level.
+- If `INITIATIVE_BRIEF_PATH` is provided, write a Manager brief artifact there before writing your normal result artifact.
+- If `INITIATIVE_DECISION_PATH` is provided, write a Manager closure decision artifact there before writing your normal result artifact.
+- In this phase model MVP, closure decisions should stay narrow: prefer `decision=complete` or `decision=architect`.
+
+Required mechanics step when initiative paths are provided:
+- For a kickoff brief, call `python3 /home/openclaw/projects/agentrunner/agentrunner/scripts/emit_manager_brief.py ...` to write the brief artifact.
+- For a closure decision, call `python3 /home/openclaw/projects/agentrunner/agentrunner/scripts/emit_manager_decision.py ...` to write the decision artifact.
+- After writing the initiative artifact, still write the normal completion result to `RESULT_PATH` using `RESULT_HELPER`.
 
 Discord/operator output format:
 - First line must begin with: `Manager ›`
 - Then use 2–5 short bullet points max
-- Focus on priority changes, blockers, and next steps
+- Focus on bundle-level goals, closure judgment, blockers, and next phase
 
 Structured result contract:
 - Write a JSON object to RESULT_PATH with keys such as:

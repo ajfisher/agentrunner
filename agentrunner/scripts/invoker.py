@@ -147,7 +147,40 @@ def load_role_prompt(role: str) -> str:
     return (ROOT / f'agentrunner/prompts/{role}.txt').read_text().strip() + '\n'
 
 
-def build_message(queue_item: dict, result_path: str, handoff_path: str | None = None) -> str:
+def ensure_initiative_paths(state_dir: str, initiative: dict | None) -> dict:
+    if not isinstance(initiative, dict):
+        return {}
+    initiative_id = initiative.get('initiativeId')
+    if not isinstance(initiative_id, str) or not initiative_id.strip():
+        return {}
+    base = Path(state_dir) / 'initiatives' / initiative_id
+    base.mkdir(parents=True, exist_ok=True)
+    state_path = base / 'state.json'
+    paths = {
+        'INITIATIVE_DIR': str(base),
+        'INITIATIVE_STATE_PATH': str(state_path),
+        'INITIATIVE_BRIEF_PATH': str(base / 'brief.json'),
+        'INITIATIVE_PLAN_PATH': str(base / 'plan.json'),
+        'INITIATIVE_DECISION_PATH': str(base / 'decision.json'),
+    }
+    if not state_path.exists():
+        save_json(state_path, {
+            'initiativeId': initiative_id,
+            'phase': initiative.get('phase') or 'design-manager',
+            'managerBriefPath': paths['INITIATIVE_BRIEF_PATH'],
+            'architectPlanPath': paths['INITIATIVE_PLAN_PATH'],
+            'managerDecisionPath': paths['INITIATIVE_DECISION_PATH'],
+            'currentSubtaskId': initiative.get('subtaskId'),
+            'completedSubtasks': [],
+            'pendingSubtasks': [],
+            'branch': initiative.get('branch'),
+            'base': initiative.get('base'),
+            'writtenAt': iso_now(),
+        })
+    return paths
+
+
+def build_message(queue_item: dict, result_path: str, handoff_path: str | None = None, *, state_dir: str | None = None) -> str:
     role_prompt = load_role_prompt(str(queue_item.get('role')))
     origin = queue_item.get('origin') if isinstance(queue_item.get('origin'), dict) else {}
     handoff_bits = ''
@@ -173,6 +206,17 @@ def build_message(queue_item: dict, result_path: str, handoff_path: str | None =
                 'Treat those files as the primary source of reviewer intent; use prose/history only as backup context.\n\n'
             )
 
+    initiative_bits = ''
+    if state_dir:
+        initiative_paths = ensure_initiative_paths(state_dir, queue_item.get('initiative') if isinstance(queue_item.get('initiative'), dict) else None)
+        if initiative_paths and str(queue_item.get('role')) in ('manager', 'architect'):
+            lines = [f'{k}: {v}' for k, v in initiative_paths.items()]
+            initiative_bits = '\n'.join(lines) + '\n\n'
+            if str(queue_item.get('role')) == 'manager':
+                initiative_bits += 'If INITIATIVE_BRIEF_PATH or INITIATIVE_DECISION_PATH is relevant to this turn, write the initiative artifact first, then write the normal completion result to RESULT_PATH.\n\n'
+            elif str(queue_item.get('role')) == 'architect':
+                initiative_bits += 'Read INITIATIVE_BRIEF_PATH first when present, then write the Architect plan artifact to INITIATIVE_PLAN_PATH before writing the normal completion result to RESULT_PATH.\n\n'
+
     header = (
         'You are running under agentrunner (mechanics-driven).\n'
         'The mechanics layer owns state/queue/logs; you MUST NOT modify them.\n\n'
@@ -181,6 +225,7 @@ def build_message(queue_item: dict, result_path: str, handoff_path: str | None =
         'When you finish, write the same JSON object from AGENTRUNNER_RESULT_JSON to RESULT_PATH using RESULT_HELPER.\n\n'
         + handoff_bits
         + reviewer_bits
+        + initiative_bits
     )
     return header + role_prompt + '\nQUEUE_ITEM_JSON:\n' + json.dumps(queue_item, indent=2, ensure_ascii=False)
 
@@ -581,6 +626,7 @@ def poll_completion(state_dir: str, state: dict) -> bool:
             'checks': handoff_obj.get('checks', []),
             'constraints': handoff_obj.get('constraints', {}),
             'contextFiles': handoff_obj.get('contextFiles', []),
+            'initiative': dict(cur.get('queueItem', {}).get('initiative') or {}) if isinstance(cur.get('queueItem', {}).get('initiative'), dict) else None,
             'origin': {
                 'requestedBy': qid,
                 'handoffPath': handoff_path,
@@ -656,6 +702,7 @@ def main() -> int:
 
     if state.get('running') and state.get('current'):
         poll_completion(state_dir, state)
+        subprocess.run(['python3', str(ROOT / 'agentrunner/scripts/initiative_coordinator.py'), '--state-dir', state_dir], check=False)
         return 0
 
     queue = load_json(queue_path, [])
@@ -679,7 +726,7 @@ def main() -> int:
     session_key = f"hook:agentrunner:{args.project}:{qid}"
     result_path = str(results_dir / f"{qid}.json")
     handoff_path = str(Path(state_dir) / 'handoffs' / f"{qid}.json") if str(item.get('role')) == 'reviewer' else None
-    payload = {'message': build_message(item, result_path, handoff_path), 'name': f"agentrunner:{args.project}:{item.get('role')}:{qid}", 'sessionKey': session_key, 'wakeMode': 'now', 'deliver': False, 'channel': args.channel, 'to': args.to, 'timeoutSeconds': args.timeout_seconds}
+    payload = {'message': build_message(item, result_path, handoff_path, state_dir=state_dir), 'name': f"agentrunner:{args.project}:{item.get('role')}:{qid}", 'sessionKey': session_key, 'wakeMode': 'now', 'deliver': False, 'channel': args.channel, 'to': args.to, 'timeoutSeconds': args.timeout_seconds}
     resp = hooks_agent(payload)
     if not resp.get('ok'):
         raise RuntimeError(f"hooks agent failed: {resp}")

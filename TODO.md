@@ -95,13 +95,27 @@ Phase 5 constrained proof is complete on `picv_spike`.
 - [x] Require explicit reviewer approval evidence in merger queue items / prompt contract
 - [x] Re-run Merger proof after side-effect sequencing hardening
   - successful constrained rerun captured in `agentrunner/docs/MERGER_PROOF_SUCCESS.md`
-- [ ] Explore non-fast-forward handling / rebase-passback behavior as a later follow-on experiment
+- [x] Explore non-fast-forward handling / rebase-passback behavior as a later follow-on experiment
+  - blocked non-FF path, passback repair, and recovery-loop closure proven on `picv_spike`
 
-### 8) Optional niceties
+### 8) Initiative phase model
+- [x] Draft initiative phase model with Manager/Architect as phase roles
+- [x] Add artifact contracts + transition table for Manager brief / Architect plan / Manager closure decision
+- [x] Add helper/storage strategy and initiative-local runtime layout proposal
+- [x] Add Mermaid state diagram and first initiative-bundle experiment spec
+- [x] Implement initiative artifact helpers (`emit_manager_brief.py`, `emit_architect_plan.py`, `emit_manager_decision.py`)
+- [x] Wire initiative-local path scaffolding into `invoker.py`
+- [x] Preserve initiative metadata across blocked-review follow-up insertion
+- [x] Implement coordinator skeleton for Manager -> Architect and Architect -> first subtask
+- [x] Implement one-item-forward advancement across approved reviewer subtasks
+- [x] Implement Manager closure decision transitions (`complete` -> Merger, `architect` -> Architect replan)
+- [ ] Run the first real initiative-bundle experiment end-to-end
+
+### 9) Optional niceties
 - [ ] Add a small audit/status helper for queue events + result files + last ticks in one view
 - [ ] Consider a project-specific adapter layer for custom checks/context beyond queue item fields
 
-### 9) Operator UX cleanup
+### 10) Operator UX cleanup
 - [x] Remove raw JSON from Discord-visible outputs
 - [x] Prefix Discord messages with role/persona (`Developer ›`, `Reviewer ›`, etc.)
 - [x] Tighten operator summaries to short bullets instead of long mixed prose+machine payloads
@@ -118,5 +132,6 @@ Completed proof ladder so far:
 8. constrained passback/rebase recovery proof
 9. constrained recovery-loop closure proof
 10. first bounded self-hosting real-task run (`agentrunner` passback-suggestion change)
+11. initiative-phase model design completed through implementation slices 1-5
 
-Next: choose the next bounded real task and keep moving one item forward at a time.
+Next: run the first real initiative-bundle experiment and judge whether Manager/Architect add signal rather than bureaucracy.

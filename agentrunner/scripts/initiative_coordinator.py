@@ -1,0 +1,353 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path('/home/openclaw/projects/agentrunner')
+
+
+def iso_now() -> str:
+    return datetime.now(timezone.utc).astimezone().isoformat()
+
+
+def load_json(path: str | Path, default):
+    p = Path(path)
+    if not p.exists():
+        return default
+    return json.loads(p.read_text())
+
+
+def save_json(path: str | Path, obj) -> None:
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(p.suffix + '.tmp')
+    tmp.write_text(json.dumps(obj, indent=2, ensure_ascii=False) + '\n')
+    tmp.replace(p)
+
+
+def append_queue_event(state_dir: str, kind: str, *, item: dict | None = None, id: str | None = None, status: str | None = None) -> None:
+    events = Path(state_dir) / 'queue_events.ndjson'
+    out = Path(state_dir) / 'queue.json'
+    cmd = ['python3', str(ROOT / 'agentrunner/scripts/queue_ledger.py'), '--events', str(events), '--out', str(out), '--append', '--kind', kind]
+    if id is not None:
+        cmd += ['--id', id]
+    if status is not None:
+        cmd += ['--status', status]
+    if item is not None:
+        cmd += ['--item', json.dumps(item, ensure_ascii=False)]
+    subprocess.run(cmd, check=True)
+
+
+def ensure_initiative_paths(state_dir: str, initiative: dict) -> dict:
+    initiative_id = initiative['initiativeId']
+    base = Path(state_dir) / 'initiatives' / initiative_id
+    base.mkdir(parents=True, exist_ok=True)
+    state_path = base / 'state.json'
+    paths = {
+        'initiativeDir': str(base),
+        'initiativeStatePath': str(state_path),
+        'managerBriefPath': str(base / 'brief.json'),
+        'architectPlanPath': str(base / 'plan.json'),
+        'managerDecisionPath': str(base / 'decision.json'),
+    }
+    if not state_path.exists():
+        save_json(state_path, {
+            'initiativeId': initiative_id,
+            'phase': initiative.get('phase') or 'design-manager',
+            'managerBriefPath': paths['managerBriefPath'],
+            'architectPlanPath': paths['architectPlanPath'],
+            'managerDecisionPath': paths['managerDecisionPath'],
+            'currentSubtaskId': initiative.get('subtaskId'),
+            'completedSubtasks': [],
+            'pendingSubtasks': [],
+            'branch': initiative.get('branch'),
+            'base': initiative.get('base'),
+            'writtenAt': iso_now(),
+        })
+    return paths
+
+
+def enqueue_architect_item(state_dir: str, *, project: str, queue_item: dict, initiative_state: dict) -> None:
+    initiative = queue_item['initiative']
+    initiative_id = initiative['initiativeId']
+    item = {
+        'id': f'{initiative_id}-architect',
+        'project': project,
+        'role': 'architect',
+        'createdAt': iso_now(),
+        'repo_path': queue_item.get('repo_path'),
+        'branch': queue_item.get('branch'),
+        'base': queue_item.get('base'),
+        'goal': f'Create the initial executable plan for initiative {initiative_id}. Read the Manager brief and emit an Architect plan with bounded subtasks.',
+        'checks': [],
+        'constraints': {'initiativePhase': 'design-architect'},
+        'contextFiles': [],
+        'initiative': {
+            'initiativeId': initiative_id,
+            'phase': 'design-architect',
+            'branch': queue_item.get('branch'),
+            'base': queue_item.get('base'),
+        },
+    }
+    append_queue_event(state_dir, 'INSERT_FRONT', item=item)
+    initiative_state['phase'] = 'design-architect'
+
+
+def compile_subtask_queue_item(*, project: str, repo_path: str | None, initiative_state: dict, plan: dict, subtask: dict) -> dict:
+    initiative_id = plan['initiativeId']
+    branch = initiative_state.get('branch')
+    base = initiative_state.get('base')
+    return {
+        'id': f"{initiative_id}-{subtask['subtaskId']}",
+        'project': project,
+        'role': subtask.get('role', 'developer'),
+        'createdAt': iso_now(),
+        'repo_path': repo_path,
+        'branch': branch,
+        'base': base,
+        'goal': subtask['goal'],
+        'checks': subtask.get('checks', []),
+        'constraints': subtask.get('constraints', {}),
+        'contextFiles': subtask.get('contextFiles') or subtask.get('files') or [],
+        'initiative': {
+            'initiativeId': initiative_id,
+            'subtaskId': subtask['subtaskId'],
+            'managerBriefPath': initiative_state.get('managerBriefPath'),
+            'architectPlanPath': initiative_state.get('architectPlanPath'),
+            'branch': branch,
+            'base': base,
+        },
+    }
+
+
+def enqueue_first_subtask(state_dir: str, *, project: str, queue_item: dict, initiative_state: dict, plan: dict) -> None:
+    subtasks = plan.get('subtasks') or []
+    if not subtasks:
+        return
+    subtask = subtasks[0]
+    item = compile_subtask_queue_item(project=project, repo_path=queue_item.get('repo_path'), initiative_state=initiative_state, plan=plan, subtask=subtask)
+    append_queue_event(state_dir, 'INSERT_FRONT', item=item)
+    initiative_state['phase'] = 'execution'
+    initiative_state['currentSubtaskId'] = subtask['subtaskId']
+    initiative_state['pendingSubtasks'] = [s['subtaskId'] for s in subtasks]
+    initiative_state['completedSubtasks'] = []
+
+
+def maybe_advance(state_dir: str) -> bool:
+    state_path = Path(state_dir) / 'state.json'
+    state = load_json(state_path, {})
+    last = state.get('lastCompleted') or {}
+    current = state.get('current')
+    if state.get('running') or current:
+        return False
+    qid = last.get('queueItemId')
+    role = last.get('role')
+    queue_item = last.get('queueItem') or {}
+    if not qid or role not in ('manager', 'architect', 'reviewer'):
+        return False
+    if not isinstance(queue_item, dict):
+        return False
+
+    result_path = last.get('resultPath') or (Path(state_dir) / 'results' / f'{qid}.json')
+    result = load_json(result_path, {})
+    if result.get('status') != 'ok':
+        return False
+
+    initiative = queue_item.get('initiative') if isinstance(queue_item.get('initiative'), dict) else None
+    if not initiative or not initiative.get('initiativeId'):
+        return False
+    paths = ensure_initiative_paths(state_dir, initiative)
+    initiative_state_path = Path(paths['initiativeStatePath'])
+    initiative_state = load_json(initiative_state_path, {})
+
+    if role == 'manager':
+        phase = initiative_state.get('phase')
+        if phase in ('design-manager', None, ''):
+            brief_path = Path(paths['managerBriefPath'])
+            if not brief_path.exists():
+                return False
+            enqueue_architect_item(state_dir, project=state.get('project'), queue_item=queue_item, initiative_state=initiative_state)
+            save_json(initiative_state_path, initiative_state)
+            state['initiative'] = {'initiativeId': initiative['initiativeId'], 'phase': initiative_state.get('phase'), 'statePath': str(initiative_state_path)}
+            save_json(state_path, state)
+            return True
+
+        if phase == 'review-manager':
+            decision_path = Path(paths['managerDecisionPath'])
+            if not decision_path.exists():
+                return False
+            decision = load_json(decision_path, {})
+            choice = decision.get('decision')
+            initiative_id = initiative['initiativeId']
+            branch = initiative_state.get('branch') or queue_item.get('branch')
+            base = initiative_state.get('base') or queue_item.get('base')
+            repo_path = queue_item.get('repo_path')
+
+            if choice == 'complete':
+                merger_item = {
+                    'id': f'{initiative_id}-merger',
+                    'project': state.get('project'),
+                    'role': 'merger',
+                    'createdAt': iso_now(),
+                    'repo_path': repo_path,
+                    'branch': branch,
+                    'base': base,
+                    'goal': f'If initiative {initiative_id} is still ready and fast-forward mergeable, merge {branch} into {base} using ff-only. Otherwise emit a blocked result and leave git state unchanged.',
+                    'checks': [
+                        f'git diff --stat {base}...{branch}',
+                        'git status --short',
+                        f'git merge-base --is-ancestor {base} {branch}',
+                    ],
+                    'constraints': {
+                        'mergePolicy': 'ff-only',
+                        'blockOnNonFF': True,
+                        'approvedByReviewer': True,
+                        'approvalQueueItemId': qid,
+                        'initiativePhase': 'closure-merger',
+                    },
+                    'contextFiles': [],
+                    'initiative': {
+                        'initiativeId': initiative_id,
+                        'phase': 'closure-merger',
+                        'branch': branch,
+                        'base': base,
+                    },
+                }
+                append_queue_event(state_dir, 'INSERT_FRONT', item=merger_item)
+                initiative_state['phase'] = 'closure-merger'
+            elif choice == 'architect':
+                architect_item = {
+                    'id': f'{initiative_id}-architect-replan',
+                    'project': state.get('project'),
+                    'role': 'architect',
+                    'createdAt': iso_now(),
+                    'repo_path': repo_path,
+                    'branch': branch,
+                    'base': base,
+                    'goal': f'Replan initiative {initiative_id}. Read the Manager closure decision and update the Architect plan with a revised bounded subtask sequence.',
+                    'checks': [],
+                    'constraints': {'initiativePhase': 'replan-architect'},
+                    'contextFiles': [],
+                    'initiative': {
+                        'initiativeId': initiative_id,
+                        'phase': 'replan-architect',
+                        'branch': branch,
+                        'base': base,
+                    },
+                }
+                append_queue_event(state_dir, 'INSERT_FRONT', item=architect_item)
+                initiative_state['phase'] = 'replan-architect'
+            else:
+                return False
+
+            save_json(initiative_state_path, initiative_state)
+            state['initiative'] = {'initiativeId': initiative['initiativeId'], 'phase': initiative_state.get('phase'), 'statePath': str(initiative_state_path)}
+            save_json(state_path, state)
+            return True
+
+        return False
+
+    if role == 'architect':
+        plan_path = Path(paths['architectPlanPath'])
+        if not plan_path.exists() or initiative_state.get('phase') not in ('design-architect', 'replan-architect'):
+            return False
+        plan = load_json(plan_path, {})
+        enqueue_first_subtask(state_dir, project=state.get('project'), queue_item=queue_item, initiative_state=initiative_state, plan=plan)
+        save_json(initiative_state_path, initiative_state)
+        state['initiative'] = {'initiativeId': initiative['initiativeId'], 'phase': initiative_state.get('phase'), 'statePath': str(initiative_state_path)}
+        save_json(state_path, state)
+        return True
+
+    if role == 'reviewer':
+        if initiative_state.get('phase') != 'execution':
+            return False
+        if result.get('approved') is not True:
+            return False
+        plan_path = Path(paths['architectPlanPath'])
+        if not plan_path.exists():
+            return False
+        plan = load_json(plan_path, {})
+        subtasks = plan.get('subtasks') or []
+        current_subtask_id = initiative.get('subtaskId') or initiative_state.get('currentSubtaskId')
+        if not current_subtask_id:
+            return False
+        completed = list(initiative_state.get('completedSubtasks') or [])
+        pending = list(initiative_state.get('pendingSubtasks') or [s.get('subtaskId') for s in subtasks])
+        if current_subtask_id not in completed:
+            completed.append(current_subtask_id)
+        pending = [sid for sid in pending if sid != current_subtask_id]
+        initiative_state['completedSubtasks'] = completed
+        initiative_state['pendingSubtasks'] = pending
+
+        if pending:
+            next_id = pending[0]
+            next_subtask = next((s for s in subtasks if s.get('subtaskId') == next_id), None)
+            if next_subtask is None:
+                return False
+            item = compile_subtask_queue_item(project=state.get('project'), repo_path=queue_item.get('repo_path'), initiative_state=initiative_state, plan=plan, subtask=next_subtask)
+            append_queue_event(state_dir, 'INSERT_FRONT', item=item)
+            initiative_state['currentSubtaskId'] = next_id
+            initiative_state['phase'] = 'execution'
+        else:
+            initiative_id = initiative['initiativeId']
+            manager_item = {
+                'id': f'{initiative_id}-manager-review',
+                'project': state.get('project'),
+                'role': 'manager',
+                'createdAt': iso_now(),
+                'repo_path': queue_item.get('repo_path'),
+                'branch': initiative_state.get('branch') or queue_item.get('branch'),
+                'base': initiative_state.get('base') or queue_item.get('base'),
+                'goal': f'Perform bundle-level closure review for initiative {initiative_id}. Decide only whether the initiative is complete enough to close (`complete`) or needs another Architect pass (`architect`).',
+                'checks': [],
+                'constraints': {'initiativePhase': 'review-manager'},
+                'contextFiles': [],
+                'initiative': {
+                    'initiativeId': initiative_id,
+                    'phase': 'review-manager',
+                    'branch': initiative_state.get('branch') or queue_item.get('branch'),
+                    'base': initiative_state.get('base') or queue_item.get('base'),
+                },
+            }
+            append_queue_event(state_dir, 'INSERT_FRONT', item=manager_item)
+            initiative_state['phase'] = 'review-manager'
+            initiative_state['currentSubtaskId'] = None
+
+        save_json(initiative_state_path, initiative_state)
+        state['initiative'] = {'initiativeId': initiative['initiativeId'], 'phase': initiative_state.get('phase'), 'statePath': str(initiative_state_path)}
+        save_json(state_path, state)
+        return True
+
+    return False
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--state-dir', required=True)
+    ap.add_argument('--ensure-initiative-id')
+    ap.add_argument('--project')
+    ap.add_argument('--branch')
+    ap.add_argument('--base')
+    args = ap.parse_args()
+
+    if args.ensure_initiative_id:
+        initiative = {'initiativeId': args.ensure_initiative_id, 'branch': args.branch, 'base': args.base}
+        paths = ensure_initiative_paths(args.state_dir, initiative)
+        state_path = Path(args.state_dir) / 'state.json'
+        state = load_json(state_path, {})
+        state['initiative'] = {'initiativeId': args.ensure_initiative_id, 'phase': 'design-manager', 'statePath': paths['initiativeStatePath']}
+        save_json(state_path, state)
+        print(json.dumps(paths, indent=2))
+        return 0
+
+    changed = maybe_advance(args.state_dir)
+    print(json.dumps({'changed': changed}))
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
