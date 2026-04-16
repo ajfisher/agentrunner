@@ -556,6 +556,9 @@ def poll_completion(state_dir: str, state: dict) -> bool:
                 'sessionKey': cur.get('sessionKey'),
                 'endedAt': iso_now(),
                 'status': 'blocked',
+                'queueItem': cur.get('queueItem'),
+                'resultPath': cur.get('resultPath'),
+                'handoffPath': cur.get('handoffPath'),
             }
             state['current'] = None
             save_json(Path(state_dir) / 'state.json', state)
