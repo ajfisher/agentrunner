@@ -11,6 +11,10 @@ Files:
 
 Queue events are the source of truth; `queue.json` is a convenience view.
 
+For a quick read-only operator snapshot across these files, use:
+`python3 agentrunner/scripts/status.py --state-dir /home/openclaw/.agentrunner/projects/<project>`
+It summarizes active/idle state, a short queue view, the last completed item, and the latest tick/result hint.
+
 ## Queue mutations
 Supported kinds:
 - `ENQUEUE` / `INSERT_FRONT` (with `item`)

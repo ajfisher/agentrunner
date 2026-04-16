@@ -57,8 +57,15 @@ Run invoker every minute:
 
 ## Status helper
 
-Quickly inspect a project's runtime state:
+Quickly inspect a project's runtime state without opening `state.json`, `queue.json`, `ticks.ndjson`, and result files by hand.
 
 ```bash
 python3 agentrunner/scripts/status.py --state-dir /home/openclaw/.agentrunner/projects/picv_spike
 ```
+
+The output is a compact operator snapshot that summarizes:
+- whether the project is active or idle
+- the next few queued items
+- the last completed queue item
+- the most recent tick and a short result hint
+- key runtime counters such as `extraDevTurnsUsed` when present

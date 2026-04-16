@@ -523,6 +523,9 @@ def finish_current_run(state_dir: str, state: dict, *, cur: dict, status: str, r
         'sessionKey': cur.get('sessionKey'),
         'endedAt': iso_now(),
         'status': status,
+        'queueItem': cur.get('queueItem'),
+        'resultPath': cur.get('resultPath'),
+        'handoffPath': cur.get('handoffPath'),
     }
     state['current'] = None
     save_json(Path(state_dir) / 'state.json', state)
