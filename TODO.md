@@ -133,5 +133,7 @@ Completed proof ladder so far:
 9. constrained recovery-loop closure proof
 10. first bounded self-hosting real-task run (`agentrunner` passback-suggestion change)
 11. initiative-phase model design completed through implementation slices 1-5
+12. first real initiative-bundle run completed end-to-end (`agentrunner-status-helper`) with seams patched during live run
 
-Next: run the first real initiative-bundle experiment and judge whether Manager/Architect add signal rather than bureaucracy.
+Next: add lightweight reliability polling/heartbeat for active runs and execute a second initiative-bundle confidence run with fewer/no manual nudges.
+her than bureaucracy.
