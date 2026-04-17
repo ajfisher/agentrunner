@@ -1,0 +1,9 @@
+[Unit]
+Description=AgentRunner reliability poll (one-shot)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/openclaw/projects/agentrunner
+ExecStart=/usr/bin/python3 /home/openclaw/projects/agentrunner/agentrunner/scripts/reliability_poll.py
+# Keep logs simple in journalctl --user -u agentrunner-reliability-poll.service

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run AgentRunner reliability poll every 2 minutes
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=2min
+Persistent=true
+Unit=agentrunner-reliability-poll.service
+
+[Install]
+WantedBy=timers.target
