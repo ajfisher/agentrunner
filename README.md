@@ -16,6 +16,7 @@ Runtime state lives in **`/home/openclaw/.agentrunner/`** (one subdir per projec
 - Queue-driven (no modulo role math required)
 - Bounded autonomy (limits on extra dev turns)
 - Conservative merge behavior by default (prefer fast-forward; block rather than improvise)
+- Reliable unattended progression via lightweight invoker polling (`scripts/reliability_poll.py`)
 
 ## Layout
 - `agentrunner/scripts/` – invoker + utilities (canonical artifact helpers: `emit_result.py`, `emit_handoff.py`)
