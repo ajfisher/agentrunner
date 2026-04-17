@@ -147,7 +147,7 @@ def maybe_advance(state_dir: str) -> bool:
     qid = last.get('queueItemId')
     role = last.get('role')
     queue_item = last.get('queueItem') or {}
-    if not qid or role not in ('manager', 'architect', 'reviewer'):
+    if not qid or role not in ('manager', 'architect', 'developer', 'reviewer'):
         return False
     if not isinstance(queue_item, dict):
         return False
@@ -257,6 +257,43 @@ def maybe_advance(state_dir: str) -> bool:
             return False
         plan = load_json(plan_path, {})
         enqueue_first_subtask(state_dir, project=state.get('project'), queue_item=queue_item, initiative_state=initiative_state, plan=plan)
+        save_json(initiative_state_path, initiative_state)
+        state['initiative'] = {'initiativeId': initiative['initiativeId'], 'phase': initiative_state.get('phase'), 'statePath': str(initiative_state_path)}
+        save_json(state_path, state)
+        return True
+
+    if role == 'developer':
+        if initiative_state.get('phase') != 'execution':
+            return False
+        current_subtask_id = initiative.get('subtaskId') or initiative_state.get('currentSubtaskId')
+        if not current_subtask_id:
+            return False
+        reviewer_item = {
+            'id': f"{qid}-review",
+            'project': state.get('project'),
+            'role': 'reviewer',
+            'createdAt': iso_now(),
+            'repo_path': queue_item.get('repo_path'),
+            'branch': queue_item.get('branch'),
+            'base': queue_item.get('base'),
+            'goal': f"Review completed initiative subtask {current_subtask_id} for initiative {initiative['initiativeId']}. Approve if the subtask intent is satisfied, or emit a clean handoff if follow-up Developer work is needed.",
+            'checks': queue_item.get('checks', []),
+            'constraints': {'initiativePhase': 'execution-review'},
+            'contextFiles': queue_item.get('contextFiles', []),
+            'initiative': {
+                'initiativeId': initiative['initiativeId'],
+                'subtaskId': current_subtask_id,
+                'managerBriefPath': initiative.get('managerBriefPath'),
+                'architectPlanPath': initiative.get('architectPlanPath'),
+                'branch': queue_item.get('branch'),
+                'base': queue_item.get('base'),
+            },
+            'origin': {
+                'sourceResultPath': last.get('resultPath'),
+                'requestedBy': qid,
+            },
+        }
+        append_queue_event(state_dir, 'INSERT_FRONT', item=reviewer_item)
         save_json(initiative_state_path, initiative_state)
         state['initiative'] = {'initiativeId': initiative['initiativeId'], 'phase': initiative_state.get('phase'), 'statePath': str(initiative_state_path)}
         save_json(state_path, state)
