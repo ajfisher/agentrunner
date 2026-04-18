@@ -86,3 +86,22 @@ This helper is intentionally complementary to `status.py`:
 Useful variants:
 - latest 25 valid tick records: `python3 agentrunner/scripts/tick_tailer.py --project agentrunner -n 25`
 - stream newly appended valid records without replaying the initial snapshot twice: `python3 agentrunner/scripts/tick_tailer.py --project agentrunner --follow`
+
+## Initiative enqueue helper
+
+Use the stdlib-only enqueue helper to seed a new initiative kickoff safely:
+
+```bash
+python3 agentrunner/scripts/enqueue_initiative.py \
+  --project agentrunner \
+  --initiative-id agentrunner-enqueue-cli \
+  --branch feature/agentrunner/enqueue-cli \
+  --base master \
+  --manager-brief-path /path/to/brief.json
+```
+
+Guardrails before any writes occur:
+- requires exactly one manager brief source (`--manager-brief-path`, `--manager-brief-json`, or `--manager-brief-stdin`)
+- rejects duplicate initiative ids already present in queue, running state, or initiative-local state
+- rejects pre-existing kickoff state/artifacts for the same initiative
+- normalizes the brief into `initiatives/<initiativeId>/brief.json` and enqueues the canonical Manager kickoff item only after preflight passes
