@@ -181,6 +181,18 @@ def queue_contains_initiative(queue: list, initiative_id: str) -> bool:
     return False
 
 
+def active_initiative_conflict(state: dict, *, initiative_id: str) -> str | None:
+    state_pointer = state.get('initiative') if isinstance(state.get('initiative'), dict) else None
+    if not state_pointer:
+        return None
+    active_id = state_pointer.get('initiativeId')
+    if not isinstance(active_id, str) or not active_id.strip():
+        return None
+    if active_id == initiative_id:
+        return f'state.json already points at initiative {initiative_id}'
+    return f'state.json already points at active initiative {active_id}; refusing to enqueue {initiative_id}'
+
+
 def preflight(args, brief: dict, *, state_dir: Path, state: dict, queue: list, repo_path: Path) -> list[str]:
     errors: list[str] = []
     errors.extend(validate_manager_brief(brief, initiative_id=args.initiative_id, project=args.project, branch=args.branch, base=args.base))
@@ -193,9 +205,9 @@ def preflight(args, brief: dict, *, state_dir: Path, state: dict, queue: list, r
     if current_initiative and current_initiative.get('initiativeId') == args.initiative_id:
         errors.append(f'initiative {args.initiative_id} is already running')
 
-    state_pointer = state.get('initiative') if isinstance(state.get('initiative'), dict) else None
-    if state_pointer and state_pointer.get('initiativeId') == args.initiative_id:
-        errors.append(f'state.json already points at initiative {args.initiative_id}')
+    state_conflict = active_initiative_conflict(state, initiative_id=args.initiative_id)
+    if state_conflict:
+        errors.append(state_conflict)
 
     if queue_contains_initiative(queue, args.initiative_id):
         errors.append(f'queue already contains initiative {args.initiative_id}')
