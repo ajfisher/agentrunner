@@ -128,6 +128,7 @@ A thin wrapper should:
 - print a clean operator summary
 
 This removes the current footgun where writing `queue.json` directly looks like an enqueue but is not the authoritative path.
+The operator contract should say this plainly: `queue.json` is a materialized view, and duplicate initiative ids must be rejected or converted into a visible `noop` rather than producing a second kickoff.
 
 ---
 

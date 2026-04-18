@@ -23,6 +23,17 @@ Supported kinds:
 - `DONE` (with `id`, `status`)
 
 `queue.json` is a materialized view rebuilt by `queue_ledger.py`.
+Direct edits to `queue.json` are not authoritative and may be overwritten on the next ledger replay.
+
+For initiative kickoff specifically, the supported operator path is `enqueue_initiative.py`, which:
+- validates exactly one manager-brief source
+- writes or consumes the canonical `initiatives/<initiativeId>/brief.json` artifact
+- rejects duplicate initiative ids already present in queue, current state, or initiative-local artifacts
+- appends the kickoff item through the queue-event ledger rather than mutating `queue.json` directly
+
+Expected helper behavior:
+- happy path: prints a summary with `status: "ok"`, the kickoff `queueItemId`, the canonical `managerBriefPath`, and optional reliability-poll details
+- duplicate guardrails: prints `status: "noop"` when kickoff is already active/pending/existing, or fails preflight when `state.json` already points at a different active initiative
 
 ## Dispatch + completion
 Current dispatch uses `/hooks/agent` rather than CLI cron scheduling.

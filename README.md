@@ -100,8 +100,45 @@ python3 agentrunner/scripts/enqueue_initiative.py \
   --manager-brief-path /path/to/brief.json
 ```
 
+Example using inline JSON instead of a file:
+
+```bash
+python3 agentrunner/scripts/enqueue_initiative.py \
+  --project agentrunner \
+  --initiative-id docs-refresh \
+  --branch feature/agentrunner/docs-refresh \
+  --base master \
+  --manager-brief-json '{
+    "title": "Refresh docs",
+    "objective": "Clarify operator docs for the enqueue flow.",
+    "desiredOutcomes": ["Docs updated"],
+    "definitionOfDone": ["README and state docs mention the canonical enqueue path"]
+  }'
+```
+
+Operator-facing happy-path output is a compact JSON summary containing at least:
+- `status: "ok"`
+- `initiativeId`
+- `queueItemId` (for the kickoff Manager item)
+- `managerBriefPath`
+- `briefAction`
+- optional `pollSummary` / `pollDetails` when `--poll-after-enqueue` is used
+
 Guardrails before any writes occur:
-- requires exactly one manager brief source (`--manager-brief-path`, `--manager-brief-json`, or `--manager-brief-stdin`)
-- rejects duplicate initiative ids already present in queue, running state, or initiative-local state
-- rejects pre-existing kickoff state/artifacts for the same initiative
+- requires exactly one manager brief source (`--manager-brief-path`, `--manager-brief-artifact-path`, `--manager-brief-json`, or `--manager-brief-stdin`)
+- rejects duplicate initiative ids already present in the runnable queue, active run state, or initiative-local state/artifacts
+- rejects pre-existing kickoff result/handoff/review artifacts for the same initiative
 - normalizes the brief into `initiatives/<initiativeId>/brief.json` and enqueues the canonical Manager kickoff item only after preflight passes
+
+Important: `queue.json` is a **materialized view**, not an enqueue authority.
+Do **not** add items by editing `queue.json` directly. The authoritative enqueue path is the queue-event ledger via `enqueue_initiative.py` (or other ledger-writing helpers), after which mechanics rebuilds `queue.json` as a convenience view.
+
+Duplicate handling is intentionally conservative:
+- if the same initiative is already active, pending, or has initiative-local kickoff artifacts, the helper returns a `noop` summary instead of enqueueing a second kickoff
+- if `state.json` already points at a different active initiative, preflight fails rather than silently changing focus
+
+Lightweight proof / operator test recipe:
+1. Prepare a disposable project state dir under `~/.agentrunner/projects/<scratch-project>/`.
+2. Run `enqueue_initiative.py` once with a valid brief and confirm the summary reports `status: "ok"` plus `<initiativeId>-manager` as the kickoff item.
+3. Run the same command again with the same `initiativeId` and confirm the summary reports `status: "noop"` with an “already active/pending/exists” style message.
+4. Optionally run once with `--poll-after-enqueue` to confirm the helper also reports the reliability poll summary without requiring any direct `queue.json` edits.
