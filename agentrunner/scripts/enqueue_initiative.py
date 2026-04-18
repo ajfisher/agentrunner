@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+from initiative_coordinator import append_queue_event, ensure_initiative_paths
 
 ROOT = Path('/home/openclaw/projects/agentrunner')
 STATE_ROOT = Path('/home/openclaw/.agentrunner/projects')
@@ -121,32 +122,6 @@ def ensure_project_state(state_path: Path, project: str, branch: str) -> None:
     })
 
 
-def ensure_initiative_paths(state_dir: Path, initiative_id: str, branch: str, base: str) -> dict:
-    initiative_dir = state_dir / 'initiatives' / initiative_id
-    state_path = initiative_dir / 'state.json'
-    paths = {
-        'initiativeDir': str(initiative_dir),
-        'initiativeStatePath': str(state_path),
-        'managerBriefPath': str(initiative_dir / 'brief.json'),
-        'architectPlanPath': str(initiative_dir / 'plan.json'),
-        'managerDecisionPath': str(initiative_dir / 'decision.json'),
-    }
-    save_json(state_path, {
-        'initiativeId': initiative_id,
-        'phase': 'design-manager',
-        'managerBriefPath': paths['managerBriefPath'],
-        'architectPlanPath': paths['architectPlanPath'],
-        'managerDecisionPath': paths['managerDecisionPath'],
-        'currentSubtaskId': None,
-        'completedSubtasks': [],
-        'pendingSubtasks': [],
-        'branch': branch,
-        'base': base,
-        'writtenAt': iso_now(),
-    })
-    return paths
-
-
 def build_kickoff_item(*, project: str, repo_path: str | None, initiative_id: str, branch: str, base: str) -> dict:
     return {
         'id': f'{initiative_id}-manager',
@@ -181,6 +156,32 @@ def queue_contains_initiative(queue: list, initiative_id: str) -> bool:
     return False
 
 
+def kickoff_status(state: dict, queue: list, *, initiative_id: str, state_dir: Path) -> tuple[str, str] | None:
+    current = state.get('current') if isinstance(state.get('current'), dict) else None
+    queue_item = current.get('queueItem') if current and isinstance(current.get('queueItem'), dict) else None
+    current_initiative = queue_item.get('initiative') if queue_item and isinstance(queue_item.get('initiative'), dict) else None
+    if current_initiative and current_initiative.get('initiativeId') == initiative_id:
+        return 'noop', f'kickoff already active for initiative {initiative_id} ({queue_item.get("id") or f"{initiative_id}-manager"})'
+
+    if queue_contains_initiative(queue, initiative_id):
+        return 'noop', f'kickoff already pending for initiative {initiative_id} ({initiative_id}-manager)'
+
+    initiative_dir = state_dir / 'initiatives' / initiative_id
+    if initiative_dir.exists():
+        return 'noop', f'initiative already exists at {initiative_dir}'
+
+    kickoff_paths = [
+        state_dir / 'results' / f'{initiative_id}-manager.json',
+        state_dir / 'handoffs' / f'{initiative_id}-manager.json',
+        state_dir / 'review_findings' / f'{initiative_id}-manager.json',
+    ]
+    existing = [str(path) for path in kickoff_paths if path.exists()]
+    if existing:
+        return 'noop', 'kickoff artifacts already exist for this initiative: ' + ', '.join(existing)
+
+    return None
+
+
 def active_initiative_conflict(state: dict, *, initiative_id: str) -> str | None:
     state_pointer = state.get('initiative') if isinstance(state.get('initiative'), dict) else None
     if not state_pointer:
@@ -200,47 +201,11 @@ def preflight(args, brief: dict, *, state_dir: Path, state: dict, queue: list, r
     if not repo_path.exists():
         errors.append(f'repo path does not exist: {repo_path}')
 
-    current = state.get('current') if isinstance(state.get('current'), dict) else None
-    current_initiative = current.get('queueItem', {}).get('initiative') if current and isinstance(current.get('queueItem'), dict) and isinstance(current.get('queueItem').get('initiative'), dict) else None
-    if current_initiative and current_initiative.get('initiativeId') == args.initiative_id:
-        errors.append(f'initiative {args.initiative_id} is already running')
-
     state_conflict = active_initiative_conflict(state, initiative_id=args.initiative_id)
     if state_conflict:
         errors.append(state_conflict)
 
-    if queue_contains_initiative(queue, args.initiative_id):
-        errors.append(f'queue already contains initiative {args.initiative_id}')
-
-    initiative_dir = state_dir / 'initiatives' / args.initiative_id
-    if initiative_dir.exists():
-        errors.append(f'initiative state already exists: {initiative_dir}')
-
-    kickoff_paths = [
-        state_dir / 'results' / f'{args.initiative_id}-manager.json',
-        state_dir / 'handoffs' / f'{args.initiative_id}-manager.json',
-        state_dir / 'review_findings' / f'{args.initiative_id}-manager.json',
-    ]
-    existing = [str(path) for path in kickoff_paths if path.exists()]
-    if existing:
-        errors.append('kickoff artifacts already exist for this initiative: ' + ', '.join(existing))
-
     return errors
-
-
-def append_queue_event(state_dir: Path, item: dict) -> None:
-    events = state_dir / 'queue_events.ndjson'
-    out = state_dir / 'queue.json'
-    cmd = [
-        'python3',
-        str(ROOT / 'agentrunner/scripts/queue_ledger.py'),
-        '--events', str(events),
-        '--out', str(out),
-        '--append',
-        '--kind', 'INSERT_FRONT',
-        '--item', json.dumps(item, ensure_ascii=False),
-    ]
-    subprocess.run(cmd, check=True)
 
 
 def main() -> int:
@@ -269,12 +234,31 @@ def main() -> int:
     if state and not isinstance(state, dict):
         raise SystemExit('state.json must contain a JSON object when present')
 
+    existing = kickoff_status(state or {}, queue, initiative_id=args.initiative_id, state_dir=state_dir)
+    if existing:
+        status, message = existing
+        print(json.dumps({
+            'status': status,
+            'project': args.project,
+            'initiativeId': args.initiative_id,
+            'message': message,
+            'stateDir': str(state_dir),
+            'branch': args.branch,
+            'base': args.base,
+        }, indent=2, ensure_ascii=False))
+        return 0
+
     errors = preflight(args, brief, state_dir=state_dir, state=state or {}, queue=queue, repo_path=repo_path)
     if errors:
         raise SystemExit('preflight failed:\n- ' + '\n- '.join(errors))
 
     ensure_project_state(state_path, args.project, args.branch)
-    paths = ensure_initiative_paths(state_dir, args.initiative_id, args.branch, args.base)
+    paths = ensure_initiative_paths(str(state_dir), {
+        'initiativeId': args.initiative_id,
+        'phase': 'design-manager',
+        'branch': args.branch,
+        'base': args.base,
+    })
 
     normalized_brief = dict(brief)
     normalized_brief['initiativeId'] = args.initiative_id
@@ -287,7 +271,7 @@ def main() -> int:
     save_json(paths['managerBriefPath'], normalized_brief)
 
     kickoff_item = build_kickoff_item(project=args.project, repo_path=str(repo_path), initiative_id=args.initiative_id, branch=args.branch, base=args.base)
-    append_queue_event(state_dir, kickoff_item)
+    append_queue_event(str(state_dir), 'INSERT_FRONT', item=kickoff_item)
 
     state = load_json(state_path, {})
     state['initiative'] = {
