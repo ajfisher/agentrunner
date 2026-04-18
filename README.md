@@ -70,3 +70,19 @@ The output is a compact operator snapshot that summarizes:
 - the last completed queue item
 - the most recent tick and a short result hint
 - key runtime counters such as `extraDevTurnsUsed` when present
+
+## Tick tailer helper
+
+For a compact recent-history view of tick activity, use:
+
+```bash
+python3 agentrunner/scripts/tick_tailer.py --project agentrunner
+```
+
+This helper is intentionally complementary to `status.py`:
+- `status.py` answers the present-tense operator question: what is running, queued, or blocked right now?
+- `tick_tailer.py` answers the recent-history question: what just happened over the last few validated ticks?
+
+Useful variants:
+- latest 25 valid tick records: `python3 agentrunner/scripts/tick_tailer.py --project agentrunner -n 25`
+- stream newly appended valid records without replaying the initial snapshot twice: `python3 agentrunner/scripts/tick_tailer.py --project agentrunner --follow`
