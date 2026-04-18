@@ -115,7 +115,14 @@ Phase 5 constrained proof is complete on `picv_spike`.
 - [ ] Add a small audit/status helper for queue events + result files + last ticks in one view
 - [ ] Consider a project-specific adapter layer for custom checks/context beyond queue item fields
 
-### 10) Operator UX cleanup
+### 10) Operator visibility / UX surface
+- [ ] Add a canonical operator-facing status artifact (proposed: `operator_status.json`) per project
+- [ ] Build a queue/status CLI that reads the operator artifact and shows active item, queue depth, initiative phase, last completed item, and stale/block warnings
+- [ ] Add an initiative enqueue CLI wrapper so kickoff does not require manual scaffold + ledger event plumbing
+- [ ] Evaluate optional TUI / web / dashboard / Discord status surfaces after the status artifact contract exists
+- [ ] Keep the visibility plan grounded in `agentrunner/docs/OPERATOR_VISIBILITY_BACKLOG.md`
+
+### 11) Operator UX cleanup
 - [x] Remove raw JSON from Discord-visible outputs
 - [x] Prefix Discord messages with role/persona (`Developer ›`, `Reviewer ›`, etc.)
 - [x] Tighten operator summaries to short bullets instead of long mixed prose+machine payloads
