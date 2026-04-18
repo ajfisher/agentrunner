@@ -10,6 +10,9 @@ VALID_STATUSES = {'ok', 'blocked', 'error', 'completed'}
 VALID_ROLES = {'developer', 'reviewer', 'manager', 'merger', 'architect'}
 
 
+from status_artifact import build_status_artifact, write_status_artifact
+
+
 def iso_now() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat()
 
@@ -27,6 +30,12 @@ def save_json(path: str | Path, obj) -> None:
     tmp = p.with_suffix(p.suffix + '.tmp')
     tmp.write_text(json.dumps(obj, indent=2, ensure_ascii=False) + '\n')
     tmp.replace(p)
+
+
+def refresh_operator_status(state_dir: str | Path) -> None:
+    state_path = Path(state_dir)
+    artifact = build_status_artifact(state_path)
+    write_status_artifact(state_path, artifact)
 
 
 def debug_log(msg: str) -> None:
@@ -529,6 +538,7 @@ def finish_current_run(state_dir: str, state: dict, *, cur: dict, status: str, r
     }
     state['current'] = None
     save_json(Path(state_dir) / 'state.json', state)
+    refresh_operator_status(state_dir)
 
 
 def poll_completion(state_dir: str, state: dict) -> bool:
@@ -565,9 +575,11 @@ def poll_completion(state_dir: str, state: dict) -> bool:
             }
             state['current'] = None
             save_json(Path(state_dir) / 'state.json', state)
+            refresh_operator_status(state_dir)
             return True
         state['updatedAt'] = iso_now()
         save_json(Path(state_dir) / 'state.json', state)
+        refresh_operator_status(state_dir)
         return False
 
     qid = str(cur.get('queueItemId'))
@@ -650,6 +662,7 @@ def poll_completion(state_dir: str, state: dict) -> bool:
         state = load_json(Path(state_dir) / 'state.json', state)
         state.setdefault('runtime', {})['extraDevTurnsUsed'] = int((state.get('runtime') or {}).get('extraDevTurnsUsed') or 0) + 1
         save_json(Path(state_dir) / 'state.json', state)
+        refresh_operator_status(state_dir)
     elif request_extra:
         used = int((state.get('runtime') or {}).get('extraDevTurnsUsed') or 0)
         max_extra = int((state.get('limits') or {}).get('maxExtraDevTurns') or 1)
@@ -683,6 +696,7 @@ def poll_completion(state_dir: str, state: dict) -> bool:
             state = load_json(Path(state_dir) / 'state.json', state)
             state.setdefault('runtime', {})['extraDevTurnsUsed'] = used + 1
             save_json(Path(state_dir) / 'state.json', state)
+            refresh_operator_status(state_dir)
 
     return True
 
@@ -709,12 +723,14 @@ def main() -> int:
     if state.get('running') and state.get('current'):
         poll_completion(state_dir, state)
         subprocess.run(['python3', str(ROOT / 'agentrunner/scripts/initiative_coordinator.py'), '--state-dir', state_dir], check=False)
+        refresh_operator_status(state_dir)
         return 0
 
     queue = load_json(queue_path, [])
     if not queue:
         state['updatedAt'] = iso_now()
         save_json(state_path, state)
+        refresh_operator_status(state_dir)
         return 0
 
     item = queue[0]
@@ -759,6 +775,7 @@ def main() -> int:
     }
     save_json(queue_path, queue)
     save_json(state_path, state)
+    refresh_operator_status(state_dir)
     return 0
 
 if __name__ == '__main__':

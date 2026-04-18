@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Thin human-readable adapter over the canonical operator status artifact builder."""
+"""Thin human-readable adapter over the canonical operator status artifact builder.
+
+This remains the explicit manual/operator rebuild path: run with ``--write`` to
+refresh ``operator_status.json`` on demand for recovery/debugging.
+"""
 from __future__ import annotations
 
 import argparse
