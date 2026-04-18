@@ -26,23 +26,49 @@ def should_poll_project(state_dir: Path) -> bool:
     return running or bool(queue)
 
 
-def find_projects(projects_root: Path, explicit: list[str]) -> list[tuple[str, Path]]:
+def canonical_project_name(state_dir: Path) -> str:
+    state = load_json(state_dir / 'state.json', {})
+    project = state.get('project') if isinstance(state, dict) else None
+    if isinstance(project, str) and project.strip():
+        return project
+    return state_dir.name
+
+
+def find_projects(projects_root: Path, explicit: list[str], explicit_state_dirs: list[str]) -> list[tuple[str, Path]]:
+    out: list[tuple[str, Path]] = []
+    seen: set[Path] = set()
+
+    for raw in explicit_state_dirs:
+        state_dir = Path(raw)
+        if (state_dir / 'state.json').exists() and (state_dir / 'queue.json').exists():
+            resolved = state_dir.resolve()
+            if resolved not in seen:
+                out.append((canonical_project_name(state_dir), state_dir))
+                seen.add(resolved)
+
     if explicit:
-        out: list[tuple[str, Path]] = []
         for name in explicit:
             p = projects_root / name
             if (p / 'state.json').exists() and (p / 'queue.json').exists():
-                out.append((name, p))
+                resolved = p.resolve()
+                if resolved not in seen:
+                    out.append((name, p))
+                    seen.add(resolved)
         return out
 
-    out: list[tuple[str, Path]] = []
+    if explicit_state_dirs:
+        return out
+
     if not projects_root.exists():
         return out
     for child in sorted(projects_root.iterdir()):
         if not child.is_dir():
             continue
         if (child / 'state.json').exists() and (child / 'queue.json').exists():
-            out.append((child.name, child))
+            resolved = child.resolve()
+            if resolved not in seen:
+                out.append((child.name, child))
+                seen.add(resolved)
     return out
 
 
@@ -80,6 +106,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description='Reliability poller for agentrunner project state dirs.')
     ap.add_argument('--projects-root', default='/home/openclaw/.agentrunner/projects')
     ap.add_argument('--project', action='append', default=[], help='Project name(s) to poll; if omitted, poll all detected projects')
+    ap.add_argument('--state-dir', action='append', default=[], help='Explicit state dir(s) to poll, even if they do not match the projects-root/project-name layout')
     ap.add_argument('--announce', action='store_true', help='Pass through announce mode to invoker (off by default)')
     ap.add_argument('--channel', default=None)
     ap.add_argument('--to', default=None)
@@ -88,7 +115,7 @@ def main() -> int:
     args = ap.parse_args()
 
     projects_root = Path(args.projects_root)
-    projects = find_projects(projects_root, args.project)
+    projects = find_projects(projects_root, args.project, args.state_dir)
     if not projects:
         print('No projects found to poll.')
         return 0

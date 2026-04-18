@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,6 +13,7 @@ from initiative_coordinator import append_queue_event, ensure_initiative_paths
 ROOT = Path('/home/openclaw/projects/agentrunner')
 STATE_ROOT = Path('/home/openclaw/.agentrunner/projects')
 PROJECTS_ROOT = Path('/home/openclaw/projects')
+RELIABILITY_POLL = ROOT / 'agentrunner/scripts/reliability_poll.py'
 
 
 def iso_now() -> str:
@@ -43,27 +45,39 @@ def parse_json_object(raw: str, *, label: str) -> dict:
     return value
 
 
-def load_brief_from_args(args) -> tuple[dict, str]:
+def load_brief_from_args(args) -> tuple[dict, str, Path | None]:
     provided = []
     if args.manager_brief_path:
         provided.append('path')
+    if args.manager_brief_artifact_path:
+        provided.append('artifact')
     if args.manager_brief_json:
         provided.append('json')
     if args.manager_brief_stdin:
         provided.append('stdin')
     if len(provided) != 1:
-        raise SystemExit('provide exactly one manager brief source: --manager-brief-path, --manager-brief-json, or --manager-brief-stdin')
+        raise SystemExit('provide exactly one manager brief source: --manager-brief-path, --manager-brief-artifact-path, --manager-brief-json, or --manager-brief-stdin')
 
     source = provided[0]
+    source_path: Path | None = None
     if source == 'path':
-        path = Path(args.manager_brief_path)
-        if not path.exists():
-            raise SystemExit(f'manager brief path does not exist: {path}')
+        source_path = Path(args.manager_brief_path)
+        if not source_path.exists():
+            raise SystemExit(f'manager brief path does not exist: {source_path}')
         try:
-            value = json.loads(path.read_text())
+            value = json.loads(source_path.read_text())
         except json.JSONDecodeError as exc:
             raise SystemExit(f'manager brief path must contain valid JSON: {exc}') from exc
-        source_label = f'path:{path}'
+        source_label = f'path:{source_path}'
+    elif source == 'artifact':
+        source_path = Path(args.manager_brief_artifact_path)
+        if not source_path.exists():
+            raise SystemExit(f'manager brief artifact path does not exist: {source_path}')
+        try:
+            value = json.loads(source_path.read_text())
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f'manager brief artifact path must contain valid JSON: {exc}') from exc
+        source_label = f'artifact:{source_path}'
     elif source == 'json':
         value = parse_json_object(args.manager_brief_json, label='--manager-brief-json')
         source_label = 'json:arg'
@@ -76,7 +90,7 @@ def load_brief_from_args(args) -> tuple[dict, str]:
 
     if not isinstance(value, dict):
         raise SystemExit('manager brief must be a JSON object')
-    return value, source_label
+    return value, source_label, source_path
 
 
 def validate_manager_brief(brief: dict, *, initiative_id: str, project: str, branch: str, base: str) -> list[str]:
@@ -205,7 +219,64 @@ def preflight(args, brief: dict, *, state_dir: Path, state: dict, queue: list, r
     if state_conflict:
         errors.append(state_conflict)
 
+    if args.poll_after_enqueue and not RELIABILITY_POLL.exists():
+        errors.append(f'reliability poll script does not exist: {RELIABILITY_POLL}')
+
     return errors
+
+
+def materialize_manager_brief(*, brief: dict, brief_source: str, brief_source_path: Path | None, destination_path: Path, args, repo_path: Path) -> tuple[Path, str]:
+    if brief_source.startswith('artifact:'):
+        if brief_source_path is None:
+            raise SystemExit('internal error: artifact source path missing')
+        source_path = brief_source_path.resolve()
+        destination = destination_path.resolve()
+        if source_path != destination:
+            raise SystemExit(
+                '--manager-brief-artifact-path must point at the initiative-local brief artifact path for this enqueue run; '
+                'use --manager-brief-path to copy a brief file into place'
+            )
+        return destination_path, 'consumed existing initiative brief artifact'
+
+    normalized_brief = dict(brief)
+    normalized_brief['initiativeId'] = args.initiative_id
+    normalized_brief['project'] = args.project
+    normalized_brief['repoPath'] = str(repo_path)
+    normalized_brief['baseBranch'] = args.base
+    normalized_brief['suggestedBranch'] = args.branch
+    normalized_brief['writtenAt'] = normalized_brief.get('writtenAt') or iso_now()
+    normalized_brief['briefSource'] = brief_source
+    save_json(destination_path, normalized_brief)
+
+    if brief_source.startswith('path:'):
+        return destination_path, 'copied brief file into initiative brief artifact'
+    return destination_path, 'wrote normalized initiative brief artifact'
+
+
+def run_reliability_poll(*, project: str, state_dir: Path) -> tuple[str, list[str]]:
+    cmd = [
+        'python3',
+        str(RELIABILITY_POLL),
+        '--projects-root',
+        str(state_dir.parent),
+        '--project',
+        project,
+        '--state-dir',
+        str(state_dir),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    lines: list[str] = []
+    if proc.stdout.strip():
+        lines.extend(line.strip() for line in proc.stdout.splitlines() if line.strip())
+    if proc.stderr.strip():
+        lines.extend(line.strip() for line in proc.stderr.splitlines() if line.strip())
+    if proc.returncode != 0:
+        raise SystemExit(
+            'enqueue completed, but the requested reliability poll failed '
+            f'(rc={proc.returncode}): ' + (' | '.join(lines) if lines else 'no output')
+        )
+    summary = lines[-1] if lines else 'Polled 1 project(s).'
+    return summary, lines
 
 
 def main() -> int:
@@ -216,12 +287,14 @@ def main() -> int:
     ap.add_argument('--base', required=True)
     ap.add_argument('--repo-path')
     ap.add_argument('--state-dir')
-    ap.add_argument('--manager-brief-path')
+    ap.add_argument('--manager-brief-path', help='Path to a brief JSON file to copy into the initiative brief artifact')
+    ap.add_argument('--manager-brief-artifact-path', help='Path to an already-prepared initiative brief artifact to consume in place')
     ap.add_argument('--manager-brief-json')
     ap.add_argument('--manager-brief-stdin', action='store_true')
+    ap.add_argument('--poll-after-enqueue', action='store_true', help='Run one reliability_poll.py pass for this project after enqueue completes')
     args = ap.parse_args()
 
-    brief, brief_source = load_brief_from_args(args)
+    brief, brief_source, brief_source_path = load_brief_from_args(args)
     state_dir = Path(args.state_dir) if args.state_dir else (STATE_ROOT / args.project)
     repo_path = Path(args.repo_path) if args.repo_path else (PROJECTS_ROOT / args.project)
     state_path = state_dir / 'state.json'
@@ -245,6 +318,7 @@ def main() -> int:
             'stateDir': str(state_dir),
             'branch': args.branch,
             'base': args.base,
+            'pollAfterEnqueue': False,
         }, indent=2, ensure_ascii=False))
         return 0
 
@@ -260,15 +334,14 @@ def main() -> int:
         'base': args.base,
     })
 
-    normalized_brief = dict(brief)
-    normalized_brief['initiativeId'] = args.initiative_id
-    normalized_brief['project'] = args.project
-    normalized_brief['repoPath'] = str(repo_path)
-    normalized_brief['baseBranch'] = args.base
-    normalized_brief['suggestedBranch'] = args.branch
-    normalized_brief['writtenAt'] = normalized_brief.get('writtenAt') or iso_now()
-    normalized_brief['briefSource'] = brief_source
-    save_json(paths['managerBriefPath'], normalized_brief)
+    manager_brief_path, brief_action = materialize_manager_brief(
+        brief=brief,
+        brief_source=brief_source,
+        brief_source_path=brief_source_path,
+        destination_path=Path(paths['managerBriefPath']),
+        args=args,
+        repo_path=repo_path,
+    )
 
     kickoff_item = build_kickoff_item(project=args.project, repo_path=str(repo_path), initiative_id=args.initiative_id, branch=args.branch, base=args.base)
     append_queue_event(str(state_dir), 'INSERT_FRONT', item=kickoff_item)
@@ -282,15 +355,24 @@ def main() -> int:
     state['updatedAt'] = iso_now()
     save_json(state_path, state)
 
+    poll_summary = None
+    poll_details: list[str] = []
+    if args.poll_after_enqueue:
+        poll_summary, poll_details = run_reliability_poll(project=args.project, state_dir=state_dir)
+
     print(json.dumps({
         'status': 'ok',
         'project': args.project,
         'initiativeId': args.initiative_id,
         'queueItemId': kickoff_item['id'],
         'stateDir': str(state_dir),
-        'managerBriefPath': paths['managerBriefPath'],
+        'managerBriefPath': str(manager_brief_path),
+        'briefAction': brief_action,
         'branch': args.branch,
         'base': args.base,
+        'pollAfterEnqueue': bool(args.poll_after_enqueue),
+        'pollSummary': poll_summary,
+        'pollDetails': poll_details,
     }, indent=2, ensure_ascii=False))
     return 0
 
