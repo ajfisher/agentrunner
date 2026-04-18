@@ -126,6 +126,16 @@ def result_hint(result: Any) -> str | None:
     operator_summary = result.get("operatorSummary")
     if isinstance(operator_summary, str) and operator_summary.strip():
         lines = [ln.strip(" -") for ln in operator_summary.splitlines() if ln.strip()]
+        generic_prefixes = (
+            "status:",
+            "commit:",
+            "approved:",
+            "merged:",
+            "checks:",
+        )
+        informative = [line for line in lines[1:] if line and not line.lower().startswith(generic_prefixes)]
+        if informative:
+            return clip(informative[0], 160)
         for line in lines[1:]:
             if line:
                 return clip(line, 160)
