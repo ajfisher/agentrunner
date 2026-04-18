@@ -8,12 +8,76 @@ Files:
 - `queue_events.ndjson` – append-only ledger of queue mutations
 - `ticks.ndjson` – append-only ground truth of completed runs
 - `results/<queueItemId>.json` – deterministic completion/result artifact written by workers
+- `operator_status.json` – canonical operator-facing status summary derived from the runtime truth files above
 
 Queue events are the source of truth; `queue.json` is a convenience view.
+`operator_status.json` is also derivative: it is a blessed summary artifact for operator surfaces, not an authority for scheduling, enqueueing, or completion.
 
 For a quick read-only operator snapshot across these files, use:
 `python3 agentrunner/scripts/status.py --state-dir /home/openclaw/.agentrunner/projects/<project>`
-It summarizes active/idle state, a short queue view, the last completed item, and the latest tick/result hint.
+It should summarize active/idle state, a short queue view, the active initiative phase, the last completed item, and warning/result hints by consuming the canonical operator status contract.
+
+## Canonical operator status artifact
+
+Canonical location:
+- `/home/openclaw/.agentrunner/projects/<project>/operator_status.json`
+- equivalently: `~/.agentrunner/projects/<project>/operator_status.json`
+
+Purpose:
+- provide one blessed machine-readable summary for operator-facing adapters
+- keep dashboards/CLIs/chat surfaces from reconstructing state by hand
+- remain strictly derivative of mechanics-owned runtime truth
+
+Minimum contract fields:
+- `project` — project id
+- `status` — overall status (`idle`, `active`, or `blocked`)
+- `current` — active work summary or `null`
+- `queue` — queue summary including at least `depth` and `nextIds`
+- `initiative` — initiative id + current phase summary when known
+- `lastCompleted` — most recent completed/blocked item summary when known
+- `warnings` — zero or more structured warning objects
+- `updatedAt` — ISO-8601 timestamp for when the summary was refreshed
+
+Recommended `current` fields:
+- `queueItemId`
+- `role`
+- `branch`
+- `startedAt`
+- `ageSeconds`
+
+Recommended `queue` fields:
+- `depth`
+- `nextIds`
+
+Recommended `initiative` fields:
+- `initiativeId`
+- `phase`
+- `currentSubtaskId`
+
+Recommended `lastCompleted` fields:
+- `queueItemId`
+- `role`
+- `status`
+- `summary`
+- `endedAt`
+
+### Warning / stale semantics
+
+`warnings` is the canonical place for operator-facing degradation notes.
+Each warning should be a compact object so future adapters can render it without parsing prose. Recommended fields:
+- `code` — stable machine-readable identifier such as `stale_run`, `malformed_ticks`, or `missing_queue`
+- `severity` — `info`, `warning`, or `error`
+- `summary` — short human-readable explanation
+- `details` — optional extra context
+
+A stale active run should appear as a warning with `code: "stale_run"` once the active item exceeds the mechanics stale-run timeout. This warning is derivative of runtime timestamps; it does not itself unlock or mutate the queue.
+
+Status semantics:
+- `active` — work is currently running and no blocking condition is known
+- `idle` — no work is currently running and no blocking condition is known
+- `blocked` — the latest operator-visible state indicates a blocking condition (for example the current/last run is stale or the latest completed item ended blocked)
+
+Consumers should treat `operator_status.json` as the canonical operator-facing summary and treat raw files as mechanics truth for debugging, recovery, and rebuilds.
 
 ## Queue mutations
 Supported kinds:

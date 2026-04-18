@@ -80,6 +80,16 @@ This should be the blessed machine-readable summary for operator-facing tools.
 - warnings / stale-run flags
 - updated timestamp
 
+### Canonical warning semantics
+- `warnings` should be a list of compact structured objects, not a bag of prose strings.
+- Each warning should ideally include:
+  - `code` (stable machine-readable identifier)
+  - `severity` (`info`, `warning`, `error`)
+  - `summary` (short operator-facing description)
+  - optional `details`
+- A stale active run should surface as `code: "stale_run"` based on runtime timestamps/timeouts.
+- Warning presence informs the top-level `status`, but warnings themselves remain derivative and must not mutate queue/state.
+
 ### Why this comes first
 Because every future surface becomes easier if it can read one compact truth file instead of reconstructing live state from multiple artifacts.
 
@@ -128,7 +138,7 @@ A thin wrapper should:
 - print a clean operator summary
 
 This removes the current footgun where writing `queue.json` directly looks like an enqueue but is not the authoritative path.
-The operator contract should say this plainly: `queue.json` is a materialized view, and duplicate initiative ids must be rejected or converted into a visible `noop` rather than producing a second kickoff.
+The operator contract should say this plainly: `queue.json` is a materialized view, not an enqueue authority, and duplicate initiative ids must be rejected or converted into a visible `noop` rather than producing a second kickoff.
 
 ---
 

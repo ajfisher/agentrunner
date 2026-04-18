@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "agentrunner operator status",
+  "type": "object",
+  "required": [
+    "project",
+    "status",
+    "current",
+    "queue",
+    "initiative",
+    "lastCompleted",
+    "warnings",
+    "updatedAt"
+  ],
+  "properties": {
+    "project": {"type": "string", "minLength": 1},
+    "status": {"type": "string", "enum": ["idle", "active", "blocked"]},
+    "current": {
+      "type": ["object", "null"],
+      "properties": {
+        "queueItemId": {"type": "string"},
+        "role": {"type": "string", "enum": ["architect", "developer", "reviewer", "manager", "merger"]},
+        "branch": {"type": ["string", "null"]},
+        "startedAt": {"type": ["string", "null"], "description": "ISO-8601 timestamp"},
+        "ageSeconds": {"type": ["integer", "null"], "minimum": 0}
+      },
+      "required": ["queueItemId", "role"],
+      "additionalProperties": true
+    },
+    "queue": {
+      "type": "object",
+      "required": ["depth", "nextIds"],
+      "properties": {
+        "depth": {"type": "integer", "minimum": 0},
+        "nextIds": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      },
+      "additionalProperties": true
+    },
+    "initiative": {
+      "type": ["object", "null"],
+      "properties": {
+        "initiativeId": {"type": ["string", "null"]},
+        "phase": {"type": ["string", "null"]},
+        "currentSubtaskId": {"type": ["string", "null"]}
+      },
+      "additionalProperties": true
+    },
+    "lastCompleted": {
+      "type": ["object", "null"],
+      "properties": {
+        "queueItemId": {"type": "string"},
+        "role": {"type": "string", "enum": ["architect", "developer", "reviewer", "manager", "merger"]},
+        "status": {"type": ["string", "null"]},
+        "summary": {"type": ["string", "null"]},
+        "endedAt": {"type": ["string", "null"], "description": "ISO-8601 timestamp"}
+      },
+      "required": ["queueItemId", "role"],
+      "additionalProperties": true
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "severity", "summary"],
+        "properties": {
+          "code": {"type": "string", "minLength": 1},
+          "severity": {"type": "string", "enum": ["info", "warning", "error"]},
+          "summary": {"type": "string", "minLength": 1},
+          "details": {"type": ["string", "null"]}
+        },
+        "additionalProperties": true
+      }
+    },
+    "updatedAt": {"type": "string", "description": "ISO-8601 timestamp"}
+  },
+  "additionalProperties": true,
+  "$comment": "operator_status.json is a derivative operator-facing summary artifact under ~/.agentrunner/projects/<project>/operator_status.json. queue.json remains a materialized view, not an enqueue authority."
+}
