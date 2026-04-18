@@ -1,0 +1,459 @@
+#!/usr/bin/env python3
+"""Canonical operator status artifact builder for AgentRunner runtimes.
+
+This script reads mechanics-owned runtime truth defensively and derives a compact
+operator-facing summary artifact. It never mutates queue/state authority; it only
+writes the derivative ``operator_status.json`` when asked.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+STALE_RUN_AFTER = timedelta(minutes=12)
+
+
+def iso_now() -> str:
+    return datetime.now(timezone.utc).astimezone().isoformat()
+
+
+def parse_iso(ts: Any) -> datetime | None:
+    if not isinstance(ts, str) or not ts.strip():
+        return None
+    try:
+        return datetime.fromisoformat(ts)
+    except Exception:
+        return None
+
+
+def clip(value: Any, limit: int = 160) -> str:
+    if value is None:
+        return "-"
+    text = str(value).strip().replace("\n", " ")
+    text = " ".join(text.split())
+    if not text:
+        return "-"
+    if len(text) <= limit:
+        return text
+    return text[: max(1, limit - 1)] + "…"
+
+
+def load_json(path: Path, default: Any, *, warnings: list[dict[str, Any]] | None = None, code_prefix: str | None = None) -> Any:
+    if not path.exists():
+        return default
+    try:
+        return json.loads(path.read_text(encoding="utf-8", errors="ignore"))
+    except Exception as exc:
+        if warnings is not None and code_prefix:
+            warnings.append({
+                "code": f"malformed_{code_prefix}",
+                "severity": "warning",
+                "summary": f"Could not parse {path.name}",
+                "details": clip(exc, 200),
+            })
+        return default
+
+
+def tail_lines(path: Path, count: int) -> list[str]:
+    if count <= 0 or not path.exists():
+        return []
+    try:
+        return path.read_text(encoding="utf-8", errors="ignore").splitlines()[-count:]
+    except Exception:
+        return []
+
+
+def tail_ndjson(path: Path, count: int, *, warnings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if count <= 0:
+        return []
+    if not path.exists():
+        return []
+    out: list[dict[str, Any]] = []
+    malformed = 0
+    for raw in tail_lines(path, max(count * 4, count)):
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except Exception:
+            malformed += 1
+            continue
+        if isinstance(obj, dict):
+            out.append(obj)
+    if malformed:
+        warnings.append({
+            "code": "malformed_ticks",
+            "severity": "warning",
+            "summary": f"Skipped {malformed} malformed tick line(s)",
+            "details": str(path),
+        })
+    return out[-count:]
+
+
+def summarize_checks(checks: Any) -> str | None:
+    if not isinstance(checks, list) or not checks:
+        return None
+    total = len(checks)
+    ok = blocked = error = other = 0
+    for check in checks:
+        status = check.get("status") if isinstance(check, dict) else None
+        status = str(status or "").lower()
+        if status == "ok":
+            ok += 1
+        elif status == "blocked":
+            blocked += 1
+        elif status == "error":
+            error += 1
+        else:
+            other += 1
+    parts = [f"checks {ok}/{total} ok"]
+    if blocked:
+        parts.append(f"{blocked} blocked")
+    if error:
+        parts.append(f"{error} error")
+    if other:
+        parts.append(f"{other} other")
+    return ", ".join(parts)
+
+
+def result_hint(result: Any) -> str | None:
+    if not isinstance(result, dict):
+        return None
+    operator_summary = result.get("operatorSummary")
+    if isinstance(operator_summary, str) and operator_summary.strip():
+        lines = [ln.strip(" -") for ln in operator_summary.splitlines() if ln.strip()]
+        for line in lines[1:]:
+            if line:
+                return clip(line, 160)
+        if lines:
+            return clip(lines[0], 160)
+    summary = result.get("summary")
+    if summary:
+        return clip(summary, 160)
+    checks = summarize_checks(result.get("checks"))
+    if checks:
+        return clip(checks, 160)
+    return None
+
+
+def queue_item_summary(item: Any) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    return {
+        "queueItemId": item.get("id"),
+        "role": item.get("role"),
+        "branch": item.get("branch"),
+        "goal": clip(item.get("goal"), 160) if item.get("goal") else None,
+    }
+
+
+def current_summary(current: Any, *, now: datetime) -> dict[str, Any] | None:
+    if not isinstance(current, dict):
+        return None
+    started_at = current.get("startedAt") if isinstance(current.get("startedAt"), str) else None
+    age_seconds = None
+    started_dt = parse_iso(started_at)
+    if started_dt is not None:
+        age_seconds = max(0, int((now - started_dt).total_seconds()))
+    summary = {
+        "queueItemId": current.get("queueItemId"),
+        "role": current.get("role"),
+        "branch": current.get("queueItem", {}).get("branch") if isinstance(current.get("queueItem"), dict) else current.get("branch"),
+        "startedAt": started_at,
+        "ageSeconds": age_seconds,
+        "runId": current.get("runId"),
+        "sessionKey": current.get("sessionKey"),
+        "resultPath": current.get("resultPath"),
+    }
+    return summary
+
+
+def completed_summary(item: Any) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    return {
+        "queueItemId": item.get("queueItemId"),
+        "role": item.get("role"),
+        "status": item.get("status"),
+        "summary": clip(item.get("summary"), 160) if item.get("summary") else None,
+        "endedAt": item.get("endedAt") or item.get("ts"),
+        "runId": item.get("runId"),
+        "sessionKey": item.get("sessionKey"),
+        "branch": item.get("queueItem", {}).get("branch") if isinstance(item.get("queueItem"), dict) else item.get("branch"),
+    }
+
+
+def initiative_summary(state_dir: Path, state: dict[str, Any], *, warnings: list[dict[str, Any]]) -> dict[str, Any] | None:
+    pointer = state.get("initiative") if isinstance(state.get("initiative"), dict) else None
+    current = state.get("current") if isinstance(state.get("current"), dict) else None
+    queue_item = current.get("queueItem") if isinstance(current, dict) and isinstance(current.get("queueItem"), dict) else None
+    queue_initiative = queue_item.get("initiative") if isinstance(queue_item, dict) and isinstance(queue_item.get("initiative"), dict) else None
+    seed = pointer or queue_initiative
+    if not isinstance(seed, dict):
+        return None
+
+    initiative_id = seed.get("initiativeId")
+    phase = seed.get("phase")
+    current_subtask_id = seed.get("subtaskId") or seed.get("currentSubtaskId")
+    branch = seed.get("branch")
+    base = seed.get("base")
+    state_path = seed.get("statePath")
+
+    loaded: dict[str, Any] | None = None
+    if isinstance(state_path, str) and state_path.strip():
+        loaded = load_json(Path(state_path), {}, warnings=warnings, code_prefix="initiative_state")
+    elif isinstance(initiative_id, str) and initiative_id.strip():
+        guess = state_dir / "initiatives" / initiative_id / "state.json"
+        if guess.exists():
+            loaded = load_json(guess, {}, warnings=warnings, code_prefix="initiative_state")
+            state_path = str(guess)
+    if isinstance(loaded, dict) and loaded:
+        initiative_id = loaded.get("initiativeId") or initiative_id
+        phase = loaded.get("phase") or phase
+        current_subtask_id = loaded.get("currentSubtaskId") or current_subtask_id
+        branch = loaded.get("branch") or branch
+        base = loaded.get("base") or base
+
+    return {
+        "initiativeId": initiative_id,
+        "phase": phase,
+        "currentSubtaskId": current_subtask_id,
+        "branch": branch,
+        "base": base,
+        "statePath": state_path,
+    }
+
+
+def derive_last_completed(state_dir: Path, state: dict[str, Any], ticks: list[dict[str, Any]], *, warnings: list[dict[str, Any]]) -> dict[str, Any] | None:
+    last_completed = state.get("lastCompleted") if isinstance(state.get("lastCompleted"), dict) else None
+    tick = ticks[-1] if ticks else None
+    if isinstance(tick, dict):
+        summary = completed_summary(tick) or {}
+        hint = result_hint(tick.get("result"))
+        if hint and not summary.get("summary"):
+            summary["summary"] = hint
+        return summary or None
+    summary = completed_summary(last_completed)
+    if not summary:
+        return None
+    qid = summary.get("queueItemId")
+    if qid:
+        result = load_json(state_dir / "results" / f"{qid}.json", None, warnings=warnings, code_prefix="result")
+        hint = result_hint(result)
+        if hint and not summary.get("summary"):
+            summary["summary"] = hint
+    return summary
+
+
+def build_status_artifact(state_dir: Path, *, queue_preview: int = 3, tick_count: int = 3, now: datetime | None = None) -> dict[str, Any]:
+    now = now or datetime.now(timezone.utc).astimezone()
+    warnings: list[dict[str, Any]] = []
+
+    state = load_json(state_dir / "state.json", {}, warnings=warnings, code_prefix="state")
+    queue_path = state_dir / "queue.json"
+    queue = load_json(queue_path, [], warnings=warnings, code_prefix="queue")
+    if not isinstance(state, dict):
+        warnings.append({"code": "invalid_state_shape", "severity": "warning", "summary": "state.json was not an object", "details": None})
+        state = {}
+    if not isinstance(queue, list):
+        warnings.append({"code": "invalid_queue_shape", "severity": "warning", "summary": "queue.json was not a list", "details": None})
+        queue = []
+    elif not queue_path.exists():
+        warnings.append({"code": "missing_queue", "severity": "info", "summary": "queue.json missing; treating queue as empty", "details": None})
+
+    ticks = tail_ndjson(state_dir / "ticks.ndjson", max(1, tick_count), warnings=warnings)
+    current = current_summary(state.get("current"), now=now)
+    initiative = initiative_summary(state_dir, state, warnings=warnings)
+    last_completed = derive_last_completed(state_dir, state, ticks, warnings=warnings)
+
+    queue_preview_items = []
+    for item in queue[: max(0, queue_preview)]:
+        summary = queue_item_summary(item)
+        if summary:
+            queue_preview_items.append(summary)
+        else:
+            warnings.append({"code": "malformed_queue_item", "severity": "warning", "summary": "Encountered malformed queue item", "details": None})
+
+    status = "active" if bool(state.get("running")) and current else "idle"
+    if current and current.get("startedAt"):
+        started = parse_iso(current.get("startedAt"))
+        if started is not None and (now - started) >= STALE_RUN_AFTER:
+            warnings.append({
+                "code": "stale_run",
+                "severity": "warning",
+                "summary": f"Current run has been active for {current.get('ageSeconds')}s without completion",
+                "details": current.get("queueItemId"),
+            })
+            status = "blocked"
+
+    if last_completed and str(last_completed.get("status") or "").lower() == "blocked":
+        warnings.append({
+            "code": "last_completed_blocked",
+            "severity": "warning",
+            "summary": "Most recent completed item ended blocked",
+            "details": last_completed.get("queueItemId"),
+        })
+        if status != "active":
+            status = "blocked"
+
+    state_updated = parse_iso(state.get("updatedAt"))
+    if state_updated is not None:
+        age = now - state_updated
+        if age >= STALE_RUN_AFTER and status == "idle" and len(queue) > 0:
+            warnings.append({
+                "code": "stale_status",
+                "severity": "info",
+                "summary": "Queue has pending work but runtime state has not been refreshed recently",
+                "details": f"ageSeconds={int(age.total_seconds())}",
+            })
+
+    artifact = {
+        "project": state.get("project") or state_dir.name,
+        "status": status,
+        "current": current,
+        "queue": {
+            "depth": len(queue),
+            "nextIds": [str(item.get("id")) for item in queue if isinstance(item, dict) and item.get("id")][: max(0, queue_preview)],
+            "preview": queue_preview_items,
+        },
+        "initiative": initiative,
+        "lastCompleted": last_completed,
+        "warnings": warnings,
+        "updatedAt": iso_now(),
+    }
+
+    if ticks:
+        artifact["recentTicks"] = ticks
+        artifact["resultHint"] = result_hint((ticks[-1] or {}).get("result"))
+    elif last_completed and last_completed.get("queueItemId"):
+        qid = last_completed["queueItemId"]
+        result = load_json(state_dir / "results" / f"{qid}.json", None, warnings=warnings, code_prefix="result")
+        artifact["resultHint"] = result_hint(result)
+    else:
+        artifact["resultHint"] = None
+
+    runtime = state.get("runtime") if isinstance(state.get("runtime"), dict) else None
+    if runtime:
+        artifact["runtime"] = {
+            "extraDevTurnsUsed": runtime.get("extraDevTurnsUsed"),
+            "lastBranch": runtime.get("lastBranch"),
+        }
+
+    return artifact
+
+
+def write_status_artifact(state_dir: Path, artifact: dict[str, Any]) -> Path:
+    path = state_dir / "operator_status.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(artifact, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp.replace(path)
+    return path
+
+
+def format_status_lines(artifact: dict[str, Any], *, queue_preview: int = 3) -> list[str]:
+    lines: list[str] = []
+    lines.append(f"project: {artifact.get('project')}")
+    current = artifact.get("current") if isinstance(artifact.get("current"), dict) else None
+    status = str(artifact.get("status") or "idle").upper()
+    if current:
+        lines.append(f"status: {status} | {clip(current.get('queueItemId') or '?', 40)} | {clip(current.get('role') or '?', 16)}")
+        if current.get("startedAt"):
+            lines.append(f"started: {clip(current.get('startedAt'), 32)}")
+    else:
+        lines.append(f"status: {status}")
+    if artifact.get("updatedAt"):
+        lines.append(f"updated: {clip(artifact.get('updatedAt'), 32)}")
+
+    queue = artifact.get("queue") if isinstance(artifact.get("queue"), dict) else {}
+    depth = int(queue.get("depth") or 0)
+    lines.append(f"queue: {depth} item(s)")
+    preview = queue.get("preview") if isinstance(queue.get("preview"), list) else []
+    if preview:
+        for idx, item in enumerate(preview[: max(0, queue_preview)], start=1):
+            if not isinstance(item, dict):
+                continue
+            bits = [clip(item.get("queueItemId") or "?", 40), clip(item.get("role") or "?", 16)]
+            if item.get("branch"):
+                bits.append(clip(item.get("branch"), 36))
+            if item.get("goal"):
+                bits.append(clip(item.get("goal"), 80))
+            lines.append(f"  {idx}. {' | '.join(bits)}")
+        remaining = depth - len(preview[: max(0, queue_preview)])
+        if remaining > 0:
+            lines.append(f"  … +{remaining} more")
+    else:
+        lines.append("  (empty)")
+
+    initiative = artifact.get("initiative") if isinstance(artifact.get("initiative"), dict) else None
+    if initiative and initiative.get("initiativeId"):
+        bits = [clip(initiative.get("initiativeId"), 40)]
+        if initiative.get("phase"):
+            bits.append(f"phase={clip(initiative.get('phase'), 24)}")
+        if initiative.get("currentSubtaskId"):
+            bits.append(f"subtask={clip(initiative.get('currentSubtaskId'), 32)}")
+        lines.append(f"initiative: {' | '.join(bits)}")
+
+    last_completed = artifact.get("lastCompleted") if isinstance(artifact.get("lastCompleted"), dict) else None
+    if last_completed:
+        bits = [clip(last_completed.get("queueItemId") or "?", 40), clip(last_completed.get("role") or "?", 16), clip(last_completed.get("status") or "?", 16)]
+        if last_completed.get("endedAt"):
+            bits.append(clip(last_completed.get("endedAt"), 32))
+        if last_completed.get("summary"):
+            bits.append(clip(last_completed.get("summary"), 88))
+        lines.append(f"last completed: {' | '.join(bits)}")
+    else:
+        lines.append("last completed: -")
+
+    runtime = artifact.get("runtime") if isinstance(artifact.get("runtime"), dict) else None
+    if runtime:
+        bits = []
+        if runtime.get("extraDevTurnsUsed") is not None:
+            bits.append(f"extraDevTurnsUsed={runtime.get('extraDevTurnsUsed')}")
+        if runtime.get("lastBranch"):
+            bits.append(f"lastBranch={clip(runtime.get('lastBranch'), 36)}")
+        if bits:
+            lines.append(f"runtime: {', '.join(bits)}")
+
+    result_hint_value = artifact.get("resultHint")
+    lines.append(f"result hint: {clip(result_hint_value, 120) if result_hint_value else '-'}")
+    warnings = artifact.get("warnings") if isinstance(artifact.get("warnings"), list) else []
+    if warnings:
+        warning_bits = []
+        for warning in warnings[:3]:
+            if not isinstance(warning, dict):
+                continue
+            warning_bits.append(f"{warning.get('code')}: {clip(warning.get('summary'), 72)}")
+        if warning_bits:
+            lines.append("warnings: " + " | ".join(warning_bits))
+    return lines
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Build or print canonical AgentRunner operator status artifact")
+    ap.add_argument("--state-dir", required=True)
+    ap.add_argument("--queue", type=int, default=3, help="How many queued items to include in previews")
+    ap.add_argument("--ticks", type=int, default=3, help="How many recent ticks to inspect")
+    ap.add_argument("--write", action="store_true", help="Write operator_status.json to the runtime state dir")
+    ap.add_argument("--print", dest="print_summary", action="store_true", help="Print human summary lines")
+    ap.add_argument("--json", dest="print_json", action="store_true", help="Print artifact JSON to stdout")
+    args = ap.parse_args()
+
+    state_dir = Path(args.state_dir)
+    artifact = build_status_artifact(state_dir, queue_preview=args.queue, tick_count=args.ticks)
+    if args.write:
+        write_status_artifact(state_dir, artifact)
+    if args.print_summary or (not args.write and not args.print_json):
+        for line in format_status_lines(artifact, queue_preview=args.queue):
+            print(line)
+    if args.print_json:
+        print(json.dumps(artifact, indent=2, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
