@@ -11,6 +11,7 @@ VALID_ROLES = {'developer', 'reviewer', 'manager', 'merger', 'architect'}
 
 
 from status_artifact import build_status_artifact, write_status_artifact
+from operator_mqtt import maybe_publish_operator_snapshot
 
 
 def iso_now() -> str:
@@ -32,10 +33,28 @@ def save_json(path: str | Path, obj) -> None:
     tmp.replace(p)
 
 
+def operator_mqtt_config() -> dict:
+    if os.environ.get('AGENTRUNNER_OPERATOR_MQTT_CONFIG_JSON'):
+        try:
+            raw = json.loads(os.environ['AGENTRUNNER_OPERATOR_MQTT_CONFIG_JSON'])
+            return raw if isinstance(raw, dict) else {}
+        except Exception:
+            debug_log('[invoker] invalid AGENTRUNNER_OPERATOR_MQTT_CONFIG_JSON; ignoring')
+            return {}
+    cfg = load_json(CONFIG_PATH, {})
+    raw = cfg.get('operatorMqtt') if isinstance(cfg, dict) else {}
+    return raw if isinstance(raw, dict) else {}
+
+
 def refresh_operator_status(state_dir: str | Path) -> None:
     state_path = Path(state_dir)
     artifact = build_status_artifact(state_path)
     write_status_artifact(state_path, artifact)
+    try:
+        publish_result = maybe_publish_operator_snapshot(state_dir=state_path, config=operator_mqtt_config())
+        debug_log(f"[invoker] {publish_result.note}")
+    except Exception as e:
+        debug_log(f'[invoker] operator MQTT seam failed unexpectedly: {e}')
 
 
 def debug_log(msg: str) -> None:
