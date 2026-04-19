@@ -56,20 +56,22 @@ Run invoker every minute:
 * * * * * /usr/bin/python3 /home/openclaw/projects/agentrunner/agentrunner/scripts/invoker.py --project picv_spike --state-dir /home/openclaw/.agentrunner/projects/picv_spike --announce --channel discord --to channel:1477159463143084217
 ```
 
-## Status helper
+## Operator status CLI
 
-Quickly inspect a project's runtime state without opening `state.json`, `queue.json`, `ticks.ndjson`, and result files by hand.
+Use the canonical operator CLI entrypoint for read-only status/queue/initiative views.
+It prefers `operator_status.json` and only falls back to a bounded manual rebuild when you ask for it explicitly.
 
 ```bash
-python3 agentrunner/scripts/status.py --state-dir /home/openclaw/.agentrunner/projects/picv_spike
+python3 agentrunner/scripts/operator_cli.py status --project picv_spike
 ```
 
-The output is a compact operator snapshot that summarizes:
-- whether the project is active or idle
-- the next few queued items
-- the last completed queue item
-- the most recent tick and a short result hint
-- key runtime counters such as `extraDevTurnsUsed` when present
+Useful variants:
+- queue preview: `python3 agentrunner/scripts/operator_cli.py queue --project picv_spike`
+- initiative summary: `python3 agentrunner/scripts/operator_cli.py initiatives --project picv_spike`
+- bounded manual rebuild when the artifact is missing: `python3 agentrunner/scripts/operator_cli.py status --project picv_spike --rebuild-missing --write-rebuild`
+- watch mode: `python3 agentrunner/scripts/operator_cli.py watch --project picv_spike --interval 5`
+
+`status.py` remains available as the explicit rebuild/debug helper around the canonical artifact builder.
 
 ## Tick tailer helper
 

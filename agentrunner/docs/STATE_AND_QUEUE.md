@@ -14,8 +14,10 @@ Queue events are the source of truth; `queue.json` is a convenience view.
 `operator_status.json` is also derivative: it is a blessed summary artifact for operator surfaces, not an authority for scheduling, enqueueing, or completion.
 
 For a quick read-only operator snapshot across these files, use:
-`python3 agentrunner/scripts/status.py --state-dir /home/openclaw/.agentrunner/projects/<project>`
-It should summarize active/idle state, a short queue view, the active initiative phase, the last completed item, and warning/result hints by consuming the canonical operator status contract.
+`python3 agentrunner/scripts/operator_cli.py status --project <project>`
+This is the canonical operator CLI entrypoint. It should summarize active/idle state, a short queue view, the active initiative phase, the last completed item, and warning/result hints by consuming `operator_status.json` first.
+
+`status.py` remains the explicit manual rebuild/debug helper around the canonical artifact builder, rather than the default operator entrypoint.
 
 ## Canonical operator status artifact
 
