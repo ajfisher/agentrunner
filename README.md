@@ -70,6 +70,7 @@ Implemented commands today:
 - `python3 -m agentrunner queue`
 - `python3 -m agentrunner initiatives`
 - `python3 -m agentrunner watch`
+- `python3 -m agentrunner api`
 
 Important limitation today:
 - the routing contract is real and implemented now
