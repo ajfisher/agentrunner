@@ -155,9 +155,7 @@ def format_warning_lines(artifact: dict[str, Any]) -> list[str]:
 
 def render_command(command: str, artifact: dict[str, Any], *, queue_preview: int) -> list[str]:
     if command == "status":
-        lines = format_status_lines(artifact, queue_preview=queue_preview)
-        lines.extend(format_warning_lines(artifact))
-        return lines
+        return format_status_lines(artifact, queue_preview=queue_preview)
     if command == "queue":
         return format_queue_lines(artifact, queue_preview=queue_preview)
     if command == "initiatives":
