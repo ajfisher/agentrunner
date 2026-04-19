@@ -151,6 +151,42 @@ def is_terminal_success_phase(phase: object) -> bool:
     return phase in ('completed', 'closed')
 
 
+def drop_same_initiative_tail_items(state_dir: str, *, initiative_id: str) -> list[str]:
+    queue_path = Path(state_dir) / 'queue.json'
+    queue = load_json(queue_path, [])
+    if not isinstance(queue, list) or not queue:
+        return []
+
+    dropped_ids: list[str] = []
+    for item in queue:
+        if not isinstance(item, dict):
+            continue
+        item_initiative = item.get('initiative') if isinstance(item.get('initiative'), dict) else None
+        if item_initiative and item_initiative.get('initiativeId') == initiative_id:
+            item_id = item.get('id')
+            if isinstance(item_id, str) and item_id:
+                dropped_ids.append(item_id)
+
+    if not dropped_ids:
+        return []
+
+    events_path = Path(state_dir) / 'queue_events.ndjson'
+    if events_path.exists():
+        for item_id in dropped_ids:
+            append_queue_event(state_dir, 'CANCEL', id=item_id)
+    else:
+        queue = [
+            item for item in queue
+            if not (
+                isinstance(item, dict)
+                and isinstance(item.get('initiative'), dict)
+                and item.get('initiative', {}).get('initiativeId') == initiative_id
+            )
+        ]
+        save_json(queue_path, queue)
+    return dropped_ids
+
+
 def maybe_finalize_successful_initiative(state_dir: str, *, state: dict, queue_item: dict, initiative: dict, initiative_state_path: Path, initiative_state: dict, result: dict) -> bool:
     if queue_item.get('role') != 'merger':
         return False
@@ -158,6 +194,12 @@ def maybe_finalize_successful_initiative(state_dir: str, *, state: dict, queue_i
         return False
     if state.get('running') or state.get('current'):
         return False
+
+    initiative_id = initiative.get('initiativeId')
+    if not isinstance(initiative_id, str) or not initiative_id.strip():
+        return False
+
+    drop_same_initiative_tail_items(state_dir, initiative_id=initiative_id)
 
     queue = load_json(Path(state_dir) / 'queue.json', [])
     if not isinstance(queue, list) or queue:
