@@ -78,7 +78,7 @@ How the operator surfaces fit together:
 - `tick_tailer.py` is the recent-history companion for "what just happened?", not a replacement for the status artifact.
 
 Rule of thumb:
-- reach for `agentrunner status` / `queue` / `initiatives` first
+- reach for `python3 agentrunner/scripts/operator_cli.py status|queue|initiatives --project <project>` first
 - use `status.py` only for recovery/debugging or when you intentionally want to refresh `operator_status.json`
 - use `tick_tailer.py` when you want a compact validated event timeline instead of the current snapshot
 
