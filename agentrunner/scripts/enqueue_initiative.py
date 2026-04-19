@@ -10,8 +10,10 @@ from pathlib import Path
 
 try:
     from .initiative_coordinator import append_queue_event, ensure_initiative_paths
+    from .status_artifact import build_status_artifact
 except ImportError:  # pragma: no cover - script-mode fallback
     from initiative_coordinator import append_queue_event, ensure_initiative_paths
+    from status_artifact import build_status_artifact
 
 ROOT = Path('/home/openclaw/projects/agentrunner')
 STATE_ROOT = Path('/home/openclaw/.agentrunner/projects')
@@ -199,7 +201,7 @@ def kickoff_status(state: dict, queue: list, *, initiative_id: str, state_dir: P
     return None
 
 
-def active_initiative_conflict(state: dict, *, initiative_id: str) -> str | None:
+def active_initiative_conflict(state: dict, *, initiative_id: str, state_dir: Path) -> str | None:
     state_pointer = state.get('initiative') if isinstance(state.get('initiative'), dict) else None
     if not state_pointer:
         return None
@@ -208,6 +210,12 @@ def active_initiative_conflict(state: dict, *, initiative_id: str) -> str | None
         return None
     if active_id == initiative_id:
         return f'state.json already points at initiative {initiative_id}'
+
+    artifact = build_status_artifact(state_dir)
+    state_phase = state_pointer.get('phase')
+    if artifact.get('status') == 'idle-clean' and state_phase in ('closure-merger', 'completed', 'closed'):
+        return None
+
     return f'state.json already points at active initiative {active_id}; refusing to enqueue {initiative_id}'
 
 
@@ -218,7 +226,7 @@ def preflight(args, brief: dict, *, state_dir: Path, state: dict, queue: list, r
     if not repo_path.exists():
         errors.append(f'repo path does not exist: {repo_path}')
 
-    state_conflict = active_initiative_conflict(state, initiative_id=args.initiative_id)
+    state_conflict = active_initiative_conflict(state, initiative_id=args.initiative_id, state_dir=state_dir)
     if state_conflict:
         errors.append(state_conflict)
 

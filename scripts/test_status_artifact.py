@@ -47,6 +47,19 @@ def make_queue_item(item_id: str, *, role: str, branch: str, goal: str, initiati
     return item
 
 
+def init_status_repo(repo: Path, *, branch: str) -> None:
+    import subprocess
+
+    repo.mkdir(parents=True, exist_ok=True)
+    subprocess.run(['git', 'init', '-b', branch], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(['git', 'config', 'user.name', 'AgentRunner Tests'], cwd=repo, check=True)
+    subprocess.run(['git', 'config', 'user.email', 'tests@example.invalid'], cwd=repo, check=True)
+    (repo / 'README.md').write_text('ok\n', encoding='utf-8')
+    subprocess.run(['git', 'add', 'README.md'], cwd=repo, check=True)
+    subprocess.run(['git', 'commit', '-m', 'initial'], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(['git', 'branch', 'master'], cwd=repo, check=True, capture_output=True, text=True)
+
+
 def test_active_queue_and_initiative_summary(state_dir: Path) -> None:
     initiative_state = state_dir / 'initiatives' / 'operator-status-artifact' / 'state.json'
     write_json(initiative_state, {
@@ -261,17 +274,8 @@ def test_stale_and_partial_runtime_cases(state_dir: Path) -> None:
 
 
 def test_live_repo_can_outrank_stale_blocked_result_when_runtime_is_otherwise_clean(state_dir: Path) -> None:
-    import subprocess
-
     repo = state_dir / 'repo'
-    repo.mkdir(parents=True, exist_ok=True)
-    subprocess.run(['git', 'init', '-b', 'feature/agentrunner/operator-status-artifact'], cwd=repo, check=True, capture_output=True, text=True)
-    subprocess.run(['git', 'config', 'user.name', 'AgentRunner Tests'], cwd=repo, check=True)
-    subprocess.run(['git', 'config', 'user.email', 'tests@example.invalid'], cwd=repo, check=True)
-    (repo / 'README.md').write_text('ok\n', encoding='utf-8')
-    subprocess.run(['git', 'add', 'README.md'], cwd=repo, check=True)
-    subprocess.run(['git', 'commit', '-m', 'initial'], cwd=repo, check=True, capture_output=True, text=True)
-    subprocess.run(['git', 'branch', 'master'], cwd=repo, check=True, capture_output=True, text=True)
+    init_status_repo(repo, branch='feature/agentrunner/operator-status-artifact')
 
     write_json(state_dir / 'state.json', {
         'project': 'agentrunner',
@@ -301,6 +305,44 @@ def test_live_repo_can_outrank_stale_blocked_result_when_runtime_is_otherwise_cl
     assert artifact['reconciliation']['reasons'][0]['code'] == 'live_repo_clean_overrides_stale_blocked_artifact', artifact
 
 
+def test_live_repo_on_base_can_outrank_stale_blocked_merger_tail_when_feature_is_already_merged(state_dir: Path) -> None:
+    import subprocess
+
+    repo = state_dir / 'repo-on-base'
+    init_status_repo(repo, branch='feature/agentrunner/operator-status-artifact')
+    subprocess.run(['git', 'checkout', 'master'], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(['git', 'merge', '--ff-only', 'feature/agentrunner/operator-status-artifact'], cwd=repo, check=True, capture_output=True, text=True)
+
+    write_json(state_dir / 'state.json', {
+        'project': 'agentrunner',
+        'running': False,
+        'updatedAt': (FIXED_NOW - timedelta(minutes=1)).isoformat(),
+        'current': None,
+        'lastCompleted': {
+            'queueItemId': 'merger-blocked',
+            'role': 'merger',
+            'status': 'blocked',
+            'endedAt': (FIXED_NOW - timedelta(hours=2)).isoformat(),
+            'queueItem': {
+                'repo_path': str(repo),
+                'branch': 'feature/agentrunner/operator-status-artifact',
+                'base': 'master',
+            },
+        },
+    })
+    write_json(state_dir / 'queue.json', [])
+
+    artifact = build_status_artifact(state_dir, queue_preview=2, tick_count=3, now=FIXED_NOW)
+
+    assert artifact['status'] == 'idle-clean', artifact
+    live_repo = next((src for src in artifact['reconciliation']['sources'] if src.get('name') == 'live_repo'), None)
+    assert live_repo is not None and live_repo['present'] is True, artifact
+    assert live_repo['details']['branch'] == 'master', artifact
+    assert live_repo['details']['branchIsBase'] is True, artifact
+    assert live_repo['details']['expectedBranchIsAncestorOfBase'] is True, artifact
+    assert artifact['reconciliation']['reasons'][0]['code'] == 'live_repo_clean_overrides_stale_blocked_artifact', artifact
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix='status-artifact-') as tmp:
         root = Path(tmp)
@@ -308,6 +350,7 @@ def main() -> int:
         test_missing_and_malformed_optional_files_warn_not_crash(root / 'partial')
         test_stale_and_partial_runtime_cases(root / 'stale')
         test_live_repo_can_outrank_stale_blocked_result_when_runtime_is_otherwise_clean(root / 'repo-clean')
+        test_live_repo_on_base_can_outrank_stale_blocked_merger_tail_when_feature_is_already_merged(root / 'repo-on-base')
     print('ok: status artifact contract is proven across active, idle, stale, partial-runtime, and live-repo fixtures')
     return 0
 

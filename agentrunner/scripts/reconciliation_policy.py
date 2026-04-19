@@ -79,6 +79,11 @@ def reconcile_runtime_state(
     repo_clean = bool(repo_details.get("cleanWorktree"))
     repo_head_present = bool(repo_details.get("headPresent"))
     repo_branch_matches = bool(repo_details.get("branchMatchesExpected"))
+    repo_branch_is_base = bool(repo_details.get("branchIsBase"))
+    repo_expected_branch_merged_into_base = bool(repo_details.get("expectedBranchIsAncestorOfBase"))
+    repo_satisfies_clean_tail_override = repo_branch_matches or (
+        repo_branch_is_base and repo_expected_branch_merged_into_base
+    )
     queued_ids = {str(item.get("id")) for item in queue if isinstance(item, dict) and item.get("id")}
     recent_tick_qid = ticks[-1].get("queueItemId") if ticks and isinstance(ticks[-1], dict) else None
 
@@ -222,7 +227,7 @@ def reconcile_runtime_state(
         and repo_freshness == "fresh"
         and repo_clean
         and repo_head_present
-        and repo_branch_matches
+        and repo_satisfies_clean_tail_override
     ):
         reasons.append(_reason(
             code="live_repo_clean_overrides_stale_blocked_artifact",
@@ -234,6 +239,8 @@ def reconcile_runtime_state(
                 "repoPath": repo_details.get("repoPath"),
                 "head": repo_details.get("head"),
                 "branch": repo_details.get("branch"),
+                "branchIsBase": repo_details.get("branchIsBase"),
+                "expectedBranchIsAncestorOfBase": repo_details.get("expectedBranchIsAncestorOfBase"),
             },
             precedence=3,
         ))

@@ -50,6 +50,42 @@ def assert_conflicting_enqueue_blocked(*, repo_path: Path, state_dir: Path, init
         raise SystemExit(f'initiative scaffolding was created for blocked enqueue {initiative_id}')
 
 
+def assert_clean_tail_enqueue_allowed(*, repo_path: Path, state_dir: Path, brief_path: Path) -> None:
+    runtime_repo = state_dir / 'runtime-repo'
+    runtime_repo.mkdir(parents=True, exist_ok=True)
+    subprocess.run(['git', 'init', '-b', 'feature/agentrunner/clear-stale-initiative-pointer'], cwd=runtime_repo, check=True, capture_output=True, text=True)
+    subprocess.run(['git', 'config', 'user.name', 'AgentRunner Tests'], cwd=runtime_repo, check=True)
+    subprocess.run(['git', 'config', 'user.email', 'tests@example.invalid'], cwd=runtime_repo, check=True)
+    (runtime_repo / 'README.md').write_text('ok\n')
+    subprocess.run(['git', 'add', 'README.md'], cwd=runtime_repo, check=True)
+    subprocess.run(['git', 'commit', '-m', 'initial'], cwd=runtime_repo, check=True, capture_output=True, text=True)
+    subprocess.run(['git', 'branch', 'master'], cwd=runtime_repo, check=True, capture_output=True, text=True)
+    subprocess.run(['git', 'checkout', 'master'], cwd=runtime_repo, check=True, capture_output=True, text=True)
+    subprocess.run(['git', 'merge', '--ff-only', 'feature/agentrunner/clear-stale-initiative-pointer'], cwd=runtime_repo, check=True, capture_output=True, text=True)
+
+    state = json.loads((state_dir / 'state.json').read_text())
+    state['lastCompleted']['queueItem']['repo_path'] = str(runtime_repo)
+    (state_dir / 'state.json').write_text(json.dumps(state, indent=2) + '\n')
+
+    cmd = [
+        sys.executable,
+        str(repo_path / 'agentrunner/scripts/enqueue_initiative.py'),
+        '--project', 'agentrunner',
+        '--initiative-id', 'fresh-initiative',
+        '--branch', 'feature/agentrunner/fresh-initiative',
+        '--base', 'master',
+        '--repo-path', str(repo_path),
+        '--state-dir', str(state_dir),
+        '--manager-brief-path', str(brief_path),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise SystemExit(f'expected clean tail enqueue to succeed, got rc={proc.returncode}: {proc.stdout}{proc.stderr}')
+    result = json.loads(proc.stdout)
+    if result.get('status') != 'ok':
+        raise SystemExit(f'unexpected clean tail enqueue result: {result}')
+
+
 def main() -> int:
     with tempfile.TemporaryDirectory(prefix='enqueue-guardrail-') as tmp:
         temp_root = Path(tmp)
@@ -128,7 +164,13 @@ def main() -> int:
             brief_path=brief_path,
         )
 
-    print('ok: active initiative pointers and non-success closure states still block conflicting enqueue attempts')
+        assert_clean_tail_enqueue_allowed(
+            repo_path=repo_path,
+            state_dir=state_dir,
+            brief_path=brief_path,
+        )
+
+    print('ok: active initiative pointers still block real conflicts, while clean merged tails no longer block fresh enqueue attempts')
     return 0
 
 

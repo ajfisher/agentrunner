@@ -110,11 +110,14 @@ def inspect_live_repo(*, repo_path: str | None, expected_branch: str | None, bas
     branch = git_output(repo, "rev-parse", "--abbrev-ref", "HEAD")
     status_porcelain = git_output(repo, "status", "--short")
     merge_base_ok = None
+    expected_branch_merged_into_base = None
     if base and expected_branch:
         import subprocess
 
         proc = subprocess.run(["git", "merge-base", "--is-ancestor", base, expected_branch], cwd=repo, capture_output=True, text=True)
         merge_base_ok = proc.returncode == 0 if proc.returncode in (0, 1) else None
+        merged_proc = subprocess.run(["git", "merge-base", "--is-ancestor", expected_branch, base], cwd=repo, capture_output=True, text=True)
+        expected_branch_merged_into_base = merged_proc.returncode == 0 if merged_proc.returncode in (0, 1) else None
 
     present = head is not None and branch is not None
     details = {
@@ -125,6 +128,8 @@ def inspect_live_repo(*, repo_path: str | None, expected_branch: str | None, bas
         "branchMatchesExpected": bool(branch and expected_branch and branch == expected_branch) if expected_branch else True,
         "base": base,
         "baseIsAncestorOfExpectedBranch": merge_base_ok,
+        "expectedBranchIsAncestorOfBase": expected_branch_merged_into_base,
+        "branchIsBase": bool(branch and base and branch == base) if base else False,
         "head": head,
         "headPresent": bool(head),
         "cleanWorktree": status_porcelain == "" if status_porcelain is not None else False,
