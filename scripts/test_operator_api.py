@@ -79,8 +79,23 @@ def test_snapshot_happy_path(home: Path, *, port: int) -> None:
     assert data['project'] == 'demo'
     assert data['artifactPath'].endswith('/.agentrunner/projects/demo/operator_status.json')
     assert data['notes'] == []
+    assert sorted(data.keys()) == ['artifactPath', 'notes', 'project', 'snapshot']
+    assert sorted(data['snapshot'].keys()) == [
+        'current',
+        'initiative',
+        'lastCompleted',
+        'project',
+        'queue',
+        'reconciliation',
+        'resultHint',
+        'status',
+        'updatedAt',
+        'warnings',
+    ]
     assert data['snapshot']['status'] == 'idle-pending'
     assert data['snapshot']['queue']['nextIds'] == ['reviewer-1']
+    assert data['snapshot']['reconciliation']['decision'] == 'idle-pending'
+    assert data['snapshot']['updatedAt'] == '2026-04-19T00:00:00Z'
 
 
 def test_missing_project_is_a_clear_400(port: int) -> None:

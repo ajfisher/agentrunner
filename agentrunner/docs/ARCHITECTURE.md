@@ -84,6 +84,7 @@ Compatibility and limitation notes:
 - checkout-based docs should assume `python3 -m agentrunner ...` as the real implemented operator command form today
 - a bare `agentrunner ...` console-script shim may be packaged in some environments later, but it is not the architectural baseline to assume everywhere yet
 - `status.py` and `tick_tailer.py` are intentionally lower-level rebuild/debug/history helpers, not alternate primary operator surfaces
+- `api` is the optional machine-facing localhost JSON adapter over the canonical operator snapshot; it is read-only and should not be treated as an internet-facing control plane
 
 ## Operator-facing Discord summaries
 

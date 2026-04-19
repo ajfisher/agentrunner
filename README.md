@@ -124,10 +124,57 @@ Proof-check bootstrap for a clean checkout:
 
 Rule of thumb:
 - reach for `python3 -m agentrunner status|queue|initiatives|watch --project <project>` first
-- use `python3 -m agentrunner api --host 127.0.0.1 --port 8765` when you want a tiny local read-only HTTP JSON adapter over the canonical operator snapshot
+- use `python3 -m agentrunner api --host 127.0.0.1 --port 8765` when you want a tiny optional local read-only HTTP JSON adapter over the canonical operator snapshot
+- keep the API on loopback unless you are intentionally placing another authenticated/local transport in front of it; the intended default is machine-facing localhost use, not a public/operator write surface
 - use `python3 agentrunner/scripts/operator_cli.py ...` when you need the direct compatibility path or are debugging the router/delegation layer
 - use `status.py` only for recovery/debugging or when you intentionally want to refresh `operator_status.json`
 - use `tick_tailer.py` when you want a compact validated event timeline instead of the current snapshot
+
+### Optional operator API (localhost-only by default)
+
+When a local dashboard, TUI, script, or other machine-facing consumer wants JSON instead of terminal text, run:
+
+```bash
+python3 -m agentrunner api --host 127.0.0.1 --port 8765
+```
+
+Intended role:
+- expose the already-built canonical `operator_status.json` snapshot over a tiny stdlib HTTP surface
+- stay strictly **read-only** and derivative of mechanics-owned runtime truth
+- give local consumers a stable JSON contract without forcing them to parse CLI text or reconstruct state from raw mechanics files
+
+Local-use expectations:
+- bind to `127.0.0.1` by default
+- treat it as an **optional localhost adapter** for colocated tools, not the main human operator interface
+- if you need remote access later, put an explicit authenticated transport/proxy in front of it rather than treating the raw server as an internet-facing API
+
+Current endpoint:
+- `GET /v1/operator/snapshot?project=<project>`
+- `HEAD /v1/operator/snapshot?project=<project>`
+- write methods are rejected with `405 method_not_allowed`
+
+Response shape on success (`200`):
+- `project` — requested project id
+- `artifactPath` — canonical snapshot file path
+- `notes` — non-fatal loader notes
+- `snapshot` — the canonical operator-status artifact payload
+
+Minimum nested `snapshot` contract fields mirror `operator_status.json`:
+- `status`
+- `current`
+- `queue`
+- `initiative`
+- `lastCompleted`
+- `warnings`
+- `reconciliation`
+- `updatedAt`
+
+Common error responses:
+- `400 missing_project`
+- `400 invalid_project`
+- `404 snapshot_unavailable`
+- `404 not_found`
+- `405 method_not_allowed`
 
 Reconciliation visibility rules for operator/debug output:
 - `reconciliation:` should show the final decision plus the winning source/rule/precedence (`winner=source=..., rule=..., p...`)

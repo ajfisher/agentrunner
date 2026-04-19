@@ -138,6 +138,40 @@ The reconciliation `sources` payload now explicitly includes `live_repo` alongsi
 
 Consumers should treat `operator_status.json` as the canonical operator-facing summary and treat raw files as mechanics truth for debugging, recovery, and rebuilds.
 
+## Optional local operator API contract
+
+The optional HTTP API exists to serve the canonical operator snapshot to colocated machine-facing consumers without asking them to parse terminal output.
+
+Intended role:
+- read-only adapter over `operator_status.json`
+- convenience layer for local dashboards, scripts, TUIs, or other automation on the same host
+- not an authority for queue mutation, dispatch, completion, or artifact rebuilding
+
+Usage expectations:
+- prefer loopback binding (`--host 127.0.0.1`), which is also the default
+- treat it as localhost-only unless an operator deliberately places a stronger authenticated transport in front of it
+- keep human operator workflows on the CLI unless a consumer explicitly needs JSON over HTTP
+
+Current endpoint contract:
+- `GET /v1/operator/snapshot?project=<project>`
+- `HEAD /v1/operator/snapshot?project=<project>`
+- `POST|PUT|PATCH|DELETE` are rejected with `405 method_not_allowed`
+
+Successful response shape (`200`):
+- `project` — requested project id
+- `artifactPath` — canonical `operator_status.json` path for that project
+- `notes` — loader notes emitted while resolving the snapshot
+- `snapshot` — the exact canonical operator-status artifact object
+
+The nested `snapshot` payload should expose the same minimum contract fields documented above for `operator_status.json` (`status`, `current`, `queue`, `initiative`, `lastCompleted`, `warnings`, `reconciliation`, `updatedAt`).
+
+Explicit error shapes:
+- `400 missing_project` when no `project` query parameter is provided
+- `400 invalid_project` when the project name is blank, repeated, or fails validation
+- `404 snapshot_unavailable` when no canonical artifact is available for the requested project
+- `404 not_found` for unknown paths
+- `405 method_not_allowed` for write verbs against the read-only surface
+
 ## Queue mutations
 Supported kinds:
 - `ENQUEUE` / `INSERT_FRONT` (with `item`)
