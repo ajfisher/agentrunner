@@ -4,9 +4,11 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+FIXED_NOW = datetime(2026, 4, 18, 23, 0, 0, tzinfo=timezone.utc)
 
 
 def write_json(path: Path, obj) -> None:
@@ -23,6 +25,17 @@ def run_module(*args: str, input_text: str | None = None) -> subprocess.Complete
         capture_output=True,
         check=False,
     )
+
+
+def init_status_repo(repo: Path, *, branch: str) -> None:
+    repo.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-b", branch], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "config", "user.name", "AgentRunner Tests"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "tests@example.invalid"], cwd=repo, check=True)
+    (repo / "README.md").write_text("ok\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "branch", "master"], cwd=repo, check=True, capture_output=True, text=True)
 
 
 def test_routed_status_queue_and_initiatives_use_disposable_operator_artifact(tmp_path: Path) -> None:
@@ -162,3 +175,87 @@ def test_routed_brief_failure_path_stays_operator_readable(tmp_path: Path) -> No
     assert result.stdout == ""
     assert "--manager-brief-json must be valid JSON:" in result.stderr
     assert "JSONDecodeError" not in result.stderr
+
+
+def test_status_rebuild_recovers_stale_blocked_merger_tail_when_repo_is_already_clean(tmp_path: Path) -> None:
+    repo_path = tmp_path / "repo"
+    state_dir = tmp_path / "runtime"
+    init_status_repo(repo_path, branch="feature/agentrunner/state-reconciliation-weighting")
+    subprocess.run(["git", "checkout", "master"], cwd=repo_path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "merge", "--ff-only", "feature/agentrunner/state-reconciliation-weighting"], cwd=repo_path, check=True, capture_output=True, text=True)
+
+    write_json(
+        state_dir / "state.json",
+        {
+            "project": "agentrunner",
+            "running": False,
+            "updatedAt": (FIXED_NOW - timedelta(minutes=1)).isoformat(),
+            "current": None,
+            "lastCompleted": {
+                "queueItemId": "merger-blocked",
+                "role": "merger",
+                "status": "blocked",
+                "endedAt": (FIXED_NOW - timedelta(hours=2)).isoformat(),
+                "queueItem": {
+                    "repo_path": str(repo_path),
+                    "branch": "feature/agentrunner/state-reconciliation-weighting",
+                    "base": "master",
+                },
+            },
+        },
+    )
+    write_json(state_dir / "queue.json", [])
+
+    result = run_module(
+        "status",
+        "--state-dir",
+        str(state_dir),
+        "--rebuild-missing",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "status: IDLE-CLEAN" in result.stdout
+    assert "reconciliation: idle-clean | live repo truth is clean/current, so it outranks a stale blocked completion artifact | reasons=1" in result.stdout
+    assert "last completed: merger-blocked | merger | blocked" in result.stdout
+
+
+
+def test_status_rebuild_keeps_repo_conflict_blocked_instead_of_auto_cleaning(tmp_path: Path) -> None:
+    repo_path = tmp_path / "repo"
+    state_dir = tmp_path / "runtime"
+    init_status_repo(repo_path, branch="feature/agentrunner/state-reconciliation-weighting")
+    (repo_path / "README.md").write_text("dirty now\n", encoding="utf-8")
+
+    write_json(
+        state_dir / "state.json",
+        {
+            "project": "agentrunner",
+            "running": False,
+            "updatedAt": (FIXED_NOW - timedelta(minutes=1)).isoformat(),
+            "current": None,
+            "lastCompleted": {
+                "queueItemId": "merger-blocked",
+                "role": "merger",
+                "status": "blocked",
+                "endedAt": (FIXED_NOW - timedelta(hours=2)).isoformat(),
+                "queueItem": {
+                    "repo_path": str(repo_path),
+                    "branch": "feature/agentrunner/state-reconciliation-weighting",
+                    "base": "master",
+                },
+            },
+        },
+    )
+    write_json(state_dir / "queue.json", [])
+
+    result = run_module(
+        "status",
+        "--state-dir",
+        str(state_dir),
+        "--rebuild-missing",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "status: BLOCKED" in result.stdout
+    assert "reconciliation: blocked | most recent completed item ended blocked | reasons=1" in result.stdout
+    assert "last completed: merger-blocked | merger | blocked" in result.stdout
