@@ -59,7 +59,7 @@ Run invoker every minute:
 ## Operator status CLI
 
 Use the canonical operator CLI entrypoint for read-only status/queue/initiative views.
-It prefers `operator_status.json` and only falls back to a bounded manual rebuild when you ask for it explicitly.
+It prefers `operator_status.json` and only falls back to a bounded manual rebuild when you ask for it explicitly, so operators do not have to reconstruct state by hand from `state.json`, `queue.json`, `ticks.ndjson`, and `results/*.json` during the normal happy path.
 
 ```bash
 python3 agentrunner/scripts/operator_cli.py status --project picv_spike
@@ -71,7 +71,16 @@ Useful variants:
 - bounded manual rebuild when the artifact is missing: `python3 agentrunner/scripts/operator_cli.py status --project picv_spike --rebuild-missing --write-rebuild`
 - watch mode: `python3 agentrunner/scripts/operator_cli.py watch --project picv_spike --interval 5`
 
-`status.py` remains available as the explicit rebuild/debug helper around the canonical artifact builder.
+How the operator surfaces fit together:
+- `operator_cli.py` is the canonical read-only operator entrypoint for present-tense status/queue/initiative views.
+- `operator_status.json` is the blessed derivative artifact that keeps those views compact and machine-readable.
+- `status.py` is the explicit rebuild/debug helper when you intentionally want to regenerate the artifact from mechanics files.
+- `tick_tailer.py` is the recent-history companion for "what just happened?", not a replacement for the status artifact.
+
+Rule of thumb:
+- reach for `agentrunner status` / `queue` / `initiatives` first
+- use `status.py` only for recovery/debugging or when you intentionally want to refresh `operator_status.json`
+- use `tick_tailer.py` when you want a compact validated event timeline instead of the current snapshot
 
 ## Tick tailer helper
 

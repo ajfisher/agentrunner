@@ -96,7 +96,7 @@ Because every future surface becomes easier if it can read one compact truth fil
 ---
 
 ### 2) Queue / status CLI
-Build a proper operator-friendly CLI layer that reads the canonical status artifact (and only falls back to raw files if needed).
+Build a proper operator-friendly CLI layer that reads the canonical status artifact first and only falls back to raw mechanics files in explicit, bounded recovery modes.
 
 Candidate commands:
 - `agentrunner status --project <project>`
@@ -111,6 +111,12 @@ Candidate commands:
 - last completed item
 - blocked/stale warnings
 - age/duration hints
+- clear operator notes when the blessed artifact is missing or malformed, instead of forcing raw-file archaeology
+
+Operator contract:
+- default path: consume `operator_status.json` for compact readable output
+- explicit recovery path: allow bounded rebuilds via the CLI and `status.py`
+- adjacent history path: leave recent-tick narration to `tick_tailer.py`, rather than overloading the status command
 
 This is the cheapest, highest-leverage visibility surface once the status artifact exists.
 
