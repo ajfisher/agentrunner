@@ -14,9 +14,9 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from .reconciliation_policy import reconcile_runtime_state
+    from .reconciliation_policy import STALE_RUN_AFTER, reconcile_runtime_state
 except ImportError:  # pragma: no cover - script-mode fallback
-    from reconciliation_policy import reconcile_runtime_state
+    from reconciliation_policy import STALE_RUN_AFTER, reconcile_runtime_state
 
 
 def iso_now() -> str:
@@ -42,6 +42,99 @@ def clip(value: Any, limit: int = 160) -> str:
     if len(text) <= limit:
         return text
     return text[: max(1, limit - 1)] + "…"
+
+
+def git_output(repo_path: Path, *args: str) -> str | None:
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            ["git", *args],
+            cwd=repo_path,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except Exception:
+        return None
+    return proc.stdout.strip()
+
+
+def derive_repo_context(
+    state: dict[str, Any],
+    current: dict[str, Any] | None,
+    initiative: dict[str, Any] | None,
+    last_completed: dict[str, Any] | None,
+) -> tuple[str | None, str | None, str | None]:
+    candidates: list[dict[str, Any]] = []
+    raw_current = state.get("current") if isinstance(state.get("current"), dict) else None
+    queue_item = raw_current.get("queueItem") if isinstance(raw_current, dict) and isinstance(raw_current.get("queueItem"), dict) else None
+    if isinstance(queue_item, dict):
+        candidates.append(queue_item)
+    if isinstance(current, dict):
+        candidates.append(current)
+    if isinstance(last_completed, dict):
+        candidates.append(last_completed)
+    if isinstance(initiative, dict):
+        candidates.append(initiative)
+
+    repo_path = branch = base = None
+    for candidate in candidates:
+        if repo_path is None and isinstance(candidate.get("repo_path"), str) and candidate.get("repo_path").strip():
+            repo_path = candidate.get("repo_path")
+        if repo_path is None and isinstance(candidate.get("repoPath"), str) and candidate.get("repoPath").strip():
+            repo_path = candidate.get("repoPath")
+        if branch is None and isinstance(candidate.get("branch"), str) and candidate.get("branch").strip():
+            branch = candidate.get("branch")
+        if base is None and isinstance(candidate.get("base"), str) and candidate.get("base").strip():
+            base = candidate.get("base")
+    return repo_path, branch, base
+
+
+def inspect_live_repo(*, repo_path: str | None, expected_branch: str | None, base: str | None) -> dict[str, Any]:
+    if not repo_path:
+        return {
+            "present": False,
+            "freshness": "missing",
+            "details": {"repoPath": None, "reason": "no repo path available"},
+        }
+    repo = Path(repo_path)
+    if not repo.exists() or not repo.is_dir():
+        return {
+            "present": False,
+            "freshness": "missing",
+            "details": {"repoPath": repo_path, "reason": "repo path missing"},
+        }
+
+    head = git_output(repo, "rev-parse", "HEAD")
+    branch = git_output(repo, "rev-parse", "--abbrev-ref", "HEAD")
+    status_porcelain = git_output(repo, "status", "--short")
+    merge_base_ok = None
+    if base and expected_branch:
+        import subprocess
+
+        proc = subprocess.run(["git", "merge-base", "--is-ancestor", base, expected_branch], cwd=repo, capture_output=True, text=True)
+        merge_base_ok = proc.returncode == 0 if proc.returncode in (0, 1) else None
+
+    present = head is not None and branch is not None
+    details = {
+        "repoPath": str(repo),
+        "inspectedAt": iso_now(),
+        "branch": branch,
+        "expectedBranch": expected_branch,
+        "branchMatchesExpected": bool(branch and expected_branch and branch == expected_branch) if expected_branch else True,
+        "base": base,
+        "baseIsAncestorOfExpectedBranch": merge_base_ok,
+        "head": head,
+        "headPresent": bool(head),
+        "cleanWorktree": status_porcelain == "" if status_porcelain is not None else False,
+        "statusPorcelain": status_porcelain,
+    }
+    return {
+        "present": present,
+        "freshness": "fresh" if present else "missing",
+        "details": details,
+    }
 
 
 def load_json(path: Path, default: Any, *, warnings: list[dict[str, Any]] | None = None, code_prefix: str | None = None) -> Any:
@@ -188,6 +281,7 @@ def current_summary(current: Any, *, now: datetime) -> dict[str, Any] | None:
 def completed_summary(item: Any) -> dict[str, Any] | None:
     if not isinstance(item, dict):
         return None
+    queue_item = item.get("queueItem") if isinstance(item.get("queueItem"), dict) else {}
     return {
         "queueItemId": item.get("queueItemId"),
         "role": item.get("role"),
@@ -196,7 +290,9 @@ def completed_summary(item: Any) -> dict[str, Any] | None:
         "endedAt": item.get("endedAt") or item.get("ts"),
         "runId": item.get("runId"),
         "sessionKey": item.get("sessionKey"),
-        "branch": item.get("queueItem", {}).get("branch") if isinstance(item.get("queueItem"), dict) else item.get("branch"),
+        "branch": queue_item.get("branch") if queue_item else item.get("branch"),
+        "base": queue_item.get("base") if queue_item else item.get("base"),
+        "repo_path": queue_item.get("repo_path") if queue_item else item.get("repo_path"),
     }
 
 
@@ -282,6 +378,8 @@ def build_status_artifact(state_dir: Path, *, queue_preview: int = 3, tick_count
     current = current_summary(state.get("current"), now=now)
     initiative = initiative_summary(state_dir, state, warnings=warnings)
     last_completed = derive_last_completed(state_dir, state, ticks, warnings=warnings)
+    repo_path, repo_branch, repo_base = derive_repo_context(state, current, initiative, last_completed)
+    live_repo = inspect_live_repo(repo_path=repo_path, expected_branch=repo_branch, base=repo_base)
 
     queue_preview_items = []
     for item in queue[: max(0, queue_preview)]:
@@ -299,6 +397,7 @@ def build_status_artifact(state_dir: Path, *, queue_preview: int = 3, tick_count
         current=current,
         initiative=initiative,
         last_completed=last_completed,
+        live_repo=live_repo,
     )
     warnings.extend([
         {

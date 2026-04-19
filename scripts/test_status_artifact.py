@@ -144,6 +144,9 @@ def test_active_queue_and_initiative_summary(state_dir: Path) -> None:
     assert artifact['lastCompleted']['summary'] == 'Architect plan locked.', artifact
     assert artifact['resultHint'] == 'Architect plan locked.', artifact
     assert warning_codes(artifact) == set(), artifact
+    live_repo = next((src for src in artifact['reconciliation']['sources'] if src.get('name') == 'live_repo'), None)
+    assert live_repo is not None, artifact
+    assert live_repo['present'] is False, artifact
 
 
 def test_missing_and_malformed_optional_files_warn_not_crash(state_dir: Path) -> None:
@@ -170,7 +173,7 @@ def test_missing_and_malformed_optional_files_warn_not_crash(state_dir: Path) ->
     artifact = build_status_artifact(state_dir, queue_preview=3, tick_count=3, now=FIXED_NOW)
 
     codes = warning_codes(artifact)
-    assert artifact['status'] == 'idle', artifact
+    assert artifact['status'] == 'idle-clean', artifact
     assert artifact['queue']['depth'] == 0, artifact
     assert artifact['lastCompleted']['queueItemId'] == 'dev-last', artifact
     assert artifact['resultHint'] is None, artifact
@@ -250,11 +253,52 @@ def test_stale_and_partial_runtime_cases(state_dir: Path) -> None:
     assert artifact['lastCompleted']['summary'] == 'Top finding: Missing stale-run proof coverage', artifact
     assert artifact['resultHint'] == 'Top finding: Missing stale-run proof coverage', artifact
     assert 'stale_run' in codes, artifact
-    assert 'last_completed_blocked' in codes, artifact
+    assert 'last_completed_blocked' not in codes, artifact
     assert artifact['runtime'] == {
         'extraDevTurnsUsed': 1,
         'lastBranch': 'feature/agentrunner/operator-status-artifact',
     }, artifact
+
+
+def test_live_repo_can_outrank_stale_blocked_result_when_runtime_is_otherwise_clean(state_dir: Path) -> None:
+    import subprocess
+
+    repo = state_dir / 'repo'
+    repo.mkdir(parents=True, exist_ok=True)
+    subprocess.run(['git', 'init', '-b', 'feature/agentrunner/operator-status-artifact'], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(['git', 'config', 'user.name', 'AgentRunner Tests'], cwd=repo, check=True)
+    subprocess.run(['git', 'config', 'user.email', 'tests@example.invalid'], cwd=repo, check=True)
+    (repo / 'README.md').write_text('ok\n', encoding='utf-8')
+    subprocess.run(['git', 'add', 'README.md'], cwd=repo, check=True)
+    subprocess.run(['git', 'commit', '-m', 'initial'], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(['git', 'branch', 'master'], cwd=repo, check=True, capture_output=True, text=True)
+
+    write_json(state_dir / 'state.json', {
+        'project': 'agentrunner',
+        'running': False,
+        'updatedAt': (FIXED_NOW - timedelta(minutes=1)).isoformat(),
+        'current': None,
+        'lastCompleted': {
+            'queueItemId': 'review-blocked',
+            'role': 'reviewer',
+            'status': 'blocked',
+            'endedAt': (FIXED_NOW - timedelta(hours=2)).isoformat(),
+            'queueItem': {
+                'repo_path': str(repo),
+                'branch': 'feature/agentrunner/operator-status-artifact',
+                'base': 'master',
+            },
+        },
+    })
+    write_json(state_dir / 'queue.json', [])
+
+    artifact = build_status_artifact(state_dir, queue_preview=2, tick_count=3, now=FIXED_NOW)
+
+    assert artifact['status'] == 'idle-clean', artifact
+    live_repo = next((src for src in artifact['reconciliation']['sources'] if src.get('name') == 'live_repo'), None)
+    assert live_repo is not None and live_repo['present'] is True, artifact
+    assert live_repo['details']['cleanWorktree'] is True, artifact
+    assert artifact['reconciliation']['reasons'][0]['code'] == 'live_repo_clean_overrides_stale_blocked_artifact', artifact
 
 
 def main() -> int:
@@ -263,7 +307,8 @@ def main() -> int:
         test_active_queue_and_initiative_summary(root / 'active')
         test_missing_and_malformed_optional_files_warn_not_crash(root / 'partial')
         test_stale_and_partial_runtime_cases(root / 'stale')
-    print('ok: status artifact contract is proven across active, idle, stale, and partial-runtime fixtures')
+        test_live_repo_can_outrank_stale_blocked_result_when_runtime_is_otherwise_clean(root / 'repo-clean')
+    print('ok: status artifact contract is proven across active, idle, stale, partial-runtime, and live-repo fixtures')
     return 0
 
 

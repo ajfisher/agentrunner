@@ -110,10 +110,13 @@ Status semantics:
 Current precedence order:
 1. integrity conflicts between mechanics sources
 2. stale active-runtime claims
-3. last completed blocked result
-4. fresh active-runtime claim
-5. queued backlog without active work
-6. idle-clean fallback
+3. fresh live repo/git truth that proves the repo is currently clean/aligned and should outrank a stale blocked tail artifact
+4. last completed blocked result
+5. fresh active-runtime claim
+6. queued backlog without active work
+7. idle-clean fallback
+
+The reconciliation `sources` payload now explicitly includes `live_repo` alongside `runtime_state`, `live_runtime`, `queue`, `initiative`, `recent_ticks`, and `result_artifacts`. `live_repo` is a read-only git/worktree inspection with freshness/authority metadata such as repo path, inspection timestamp, current branch/HEAD, branch-alignment checks, and worktree cleanliness. This lets operator surfaces explain why current repo reality may outrank older blocked artifacts without mutating mechanics state.
 
 Consumers should treat `operator_status.json` as the canonical operator-facing summary and treat raw files as mechanics truth for debugging, recovery, and rebuilds.
 

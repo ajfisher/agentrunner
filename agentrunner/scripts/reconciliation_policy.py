@@ -54,6 +54,7 @@ def reconcile_runtime_state(
     current: dict[str, Any] | None,
     initiative: dict[str, Any] | None,
     last_completed: dict[str, Any] | None,
+    live_repo: dict[str, Any] | None,
 ) -> dict[str, Any]:
     """Return the canonical reconciliation decision.
 
@@ -72,6 +73,12 @@ def reconcile_runtime_state(
     state_age_seconds = max(0, int((now - state_updated).total_seconds())) if state_updated else None
     last_completed_status = str((last_completed or {}).get("status") or "").lower()
     current_queue_item_id = (current or {}).get("queueItemId")
+    repo_present = bool(live_repo and live_repo.get("present"))
+    repo_freshness = str((live_repo or {}).get("freshness") or "missing")
+    repo_details = (live_repo or {}).get("details") if isinstance((live_repo or {}).get("details"), dict) else {}
+    repo_clean = bool(repo_details.get("cleanWorktree"))
+    repo_head_present = bool(repo_details.get("headPresent"))
+    repo_branch_matches = bool(repo_details.get("branchMatchesExpected"))
     queued_ids = {str(item.get("id")) for item in queue if isinstance(item, dict) and item.get("id")}
     recent_tick_qid = ticks[-1].get("queueItemId") if ticks and isinstance(ticks[-1], dict) else None
 
@@ -116,9 +123,17 @@ def reconcile_runtime_state(
             details={"depth": queue_depth, "nextIds": sorted(queued_ids)[:5]},
         ),
         _source(
+            name="live_repo",
+            present=repo_present,
+            precedence=4,
+            freshness=repo_freshness,
+            authority="live git/worktree inspection",
+            details=repo_details or None,
+        ),
+        _source(
             name="initiative",
             present=initiative is not None,
-            precedence=4,
+            precedence=5,
             freshness="contextual",
             authority="initiative pointer/context",
             details={
@@ -129,7 +144,7 @@ def reconcile_runtime_state(
         _source(
             name="recent_ticks",
             present=bool(ticks),
-            precedence=5,
+            precedence=6,
             freshness="recent" if ticks else "missing",
             authority="append-only completion history",
             details={"count": len(ticks), "latestQueueItemId": recent_tick_qid},
@@ -137,7 +152,7 @@ def reconcile_runtime_state(
         _source(
             name="result_artifacts",
             present=last_completed is not None,
-            precedence=6,
+            precedence=7,
             freshness="recent" if last_completed else "missing",
             authority="last completed run/result summary",
             details={
@@ -198,6 +213,31 @@ def reconcile_runtime_state(
             precedence=2,
         ))
         decision = "blocked"
+    elif (
+        last_completed_status == "blocked"
+        and queue_depth == 0
+        and not running_flag
+        and current is None
+        and repo_present
+        and repo_freshness == "fresh"
+        and repo_clean
+        and repo_head_present
+        and repo_branch_matches
+    ):
+        reasons.append(_reason(
+            code="live_repo_clean_overrides_stale_blocked_artifact",
+            source="live_repo",
+            severity="info",
+            summary="live repo truth is clean/current, so it outranks a stale blocked completion artifact",
+            details={
+                "queueItemId": (last_completed or {}).get("queueItemId"),
+                "repoPath": repo_details.get("repoPath"),
+                "head": repo_details.get("head"),
+                "branch": repo_details.get("branch"),
+            },
+            precedence=3,
+        ))
+        decision = "idle-clean"
     elif last_completed_status == "blocked":
         reasons.append(_reason(
             code="last_completed_blocked",
@@ -205,7 +245,7 @@ def reconcile_runtime_state(
             severity="warning",
             summary="most recent completed item ended blocked",
             details={"queueItemId": (last_completed or {}).get("queueItemId")},
-            precedence=3,
+            precedence=4,
         ))
         decision = "blocked"
     elif running_flag and current is not None:
@@ -215,7 +255,7 @@ def reconcile_runtime_state(
             severity="info",
             summary="runtime lock and active run details agree on a live in-flight item",
             details={"queueItemId": current_queue_item_id, "ageSeconds": current_age_seconds},
-            precedence=4,
+            precedence=5,
         ))
         decision = "active"
     elif queue_depth > 0:
@@ -226,7 +266,7 @@ def reconcile_runtime_state(
                 severity="warning",
                 summary="queue has pending work but runtime state has not been refreshed recently",
                 details={"queueDepth": queue_depth, "ageSeconds": state_age_seconds},
-                precedence=4,
+                precedence=5,
             ))
         else:
             reasons.append(_reason(
@@ -235,7 +275,7 @@ def reconcile_runtime_state(
                 severity="info",
                 summary="queued work is present, but nothing is actively running right now",
                 details={"queueDepth": queue_depth},
-                precedence=5,
+                precedence=6,
             ))
         decision = "idle-pending"
     else:
@@ -245,7 +285,7 @@ def reconcile_runtime_state(
             severity="info",
             summary="no active run, no queued work, and no blocking completion state is visible",
             details=None,
-            precedence=6,
+            precedence=7,
         ))
         decision = "idle-clean"
 
@@ -262,7 +302,7 @@ def reconcile_runtime_state(
         "sources": sources,
         "policy": {
             "name": "canonical_runtime_reconciliation",
-            "version": 1,
+            "version": 2,
             "freshness": {
                 "staleRunAfterSeconds": int(STALE_RUN_AFTER.total_seconds()),
                 "staleStateAfterSeconds": int(STALE_STATE_AFTER.total_seconds()),
@@ -270,6 +310,7 @@ def reconcile_runtime_state(
             "precedenceOrder": [
                 "integrity_conflicts",
                 "stale_active_runtime",
+                "live_repo_clean_overrides_stale_blocked_artifact",
                 "last_completed_blocked",
                 "active_runtime_lock",
                 "queued_backlog_without_active_run",
