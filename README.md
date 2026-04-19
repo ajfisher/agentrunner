@@ -157,6 +157,7 @@ Current endpoint:
 
 For downstream MQTT dashboard/broker integration, see `agentrunner/docs/OPERATOR_MQTT_BROADCAST.md`.
 That contract is intentionally disabled by default and keeps MQTT as a read-only broadcast of canonical operator state rather than a control plane.
+The regression proof for this surface is intentionally hermetic: `python3 scripts/test_operator_mqtt.py` injects a fake/stub publisher callable, so normal local runs and CI do not require `mosquitto_pub`, a reachable broker, or any external network.
 
 Response shape on success (`200`):
 - `project` — requested project id

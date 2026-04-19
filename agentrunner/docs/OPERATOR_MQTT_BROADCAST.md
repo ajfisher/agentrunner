@@ -170,3 +170,13 @@ This MVP keeps the adapter boring:
 - conservative QoS/retain defaults suitable for operator dashboards
 
 That gives later tests a clear contract to lock before code lands, without turning MQTT into a second operator brain or a write surface.
+
+## Regression-proof expectations
+
+The MVP proof path should stay broker-free in ordinary development and CI runs.
+
+Required testing stance:
+- verify payload/topic shape through the injected `publish_fn` seam rather than a live broker
+- use a fake/stub publisher in regression tests so they remain hermetic
+- do not require `mosquitto_pub`, network reachability, or external broker availability for the normal test suite
+- reserve real-broker smoke checks, if ever added, for explicit opt-in/manual environments rather than default CI coverage

@@ -178,6 +178,37 @@ def test_maybe_publish_operator_snapshot_publishes_once_then_quiets_until_change
     assert attempts[-1]['payload']['snapshot']['queue']['depth'] == 2
 
 
+def test_maybe_publish_operator_snapshot_uses_stub_publisher_instead_of_real_broker(state_dir: Path) -> None:
+    seed_runtime_truth(state_dir)
+    artifact = build_status_artifact(state_dir, queue_preview=2, tick_count=3, now=FIXED_NOW)
+    write_status_artifact(state_dir, artifact)
+
+    attempts: list[dict] = []
+
+    def stub_publish(request: dict) -> None:
+        attempts.append(request)
+
+    result = maybe_publish_operator_snapshot(
+        state_dir=state_dir,
+        config={
+            'enabled': True,
+            'broker': {'host': 'definitely-not-a-real-broker.invalid', 'port': 65535},
+            'topicPrefix': 'agentrunner/operator',
+            'qos': 1,
+            'retain': True,
+        },
+        publish_fn=stub_publish,
+    )
+
+    assert result.published is True
+    assert len(attempts) == 1
+    assert attempts[0]['topic'] == 'agentrunner/operator/agentrunner/snapshot'
+    assert attempts[0]['broker']['host'] == 'definitely-not-a-real-broker.invalid'
+    assert attempts[0]['payload']['contract'] == MQTT_SNAPSHOT_CONTRACT
+    assert attempts[0]['payload']['snapshot']['status'] == 'active'
+    assert 'definitely-not-a-real-broker.invalid' not in attempts[0]['payloadText']
+
+
 def test_maybe_publish_operator_snapshot_degrades_publish_failures_to_notes(state_dir: Path) -> None:
     seed_runtime_truth(state_dir)
     artifact = build_status_artifact(state_dir, queue_preview=2, tick_count=3, now=FIXED_NOW)
@@ -214,8 +245,9 @@ def main() -> int:
     test_build_publish_payload_uses_canonical_snapshot_accessors(disposable_state_dir())
     test_maybe_publish_operator_snapshot_is_safe_noop_when_disabled(disposable_state_dir())
     test_maybe_publish_operator_snapshot_publishes_once_then_quiets_until_changed(disposable_state_dir())
+    test_maybe_publish_operator_snapshot_uses_stub_publisher_instead_of_real_broker(disposable_state_dir())
     test_maybe_publish_operator_snapshot_degrades_publish_failures_to_notes(disposable_state_dir())
-    print('ok: operator MQTT proof checks executed via direct runner, including canonical snapshot accessors and disabled/failure degrade paths')
+    print('ok: operator MQTT proof checks executed via direct runner, including canonical snapshot accessors, stub-publisher hermetic coverage, and disabled/failure degrade paths')
     return 0
 
 

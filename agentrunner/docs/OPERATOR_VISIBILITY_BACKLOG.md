@@ -169,6 +169,8 @@ Potentially expose operator status through:
 - a JSON endpoint
 - MQTT status topics for the cluster dashboard
 
+If MQTT broadcast coverage exists, keep it hermetic by default: prove payload/topic shape through a stub publisher seam rather than depending on a real broker during ordinary CI runs.
+
 Useful for ambient visibility in the studio.
 
 Candidate displayed fields:
