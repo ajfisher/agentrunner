@@ -23,6 +23,7 @@ Runtime state lives in **`/home/openclaw/.agentrunner/`** (one subdir per projec
 - `agentrunner/prompts/` – role prompt templates
 - `agentrunner/schemas/` – JSON Schemas
 - `agentrunner/docs/` – architecture + how-to
+  - includes `OPERATOR_MQTT_BROADCAST.md` for the disabled-by-default MQTT operator snapshot contract
 
 ## Next
 - Implement invoker: 1-minute supervisor that schedules one-shot OpenClaw cron jobs.
@@ -153,6 +154,9 @@ Current endpoint:
 - `GET /v1/operator/snapshot?project=<project>`
 - `HEAD /v1/operator/snapshot?project=<project>`
 - write methods are rejected with `405 method_not_allowed`
+
+For downstream MQTT dashboard/broker integration, see `agentrunner/docs/OPERATOR_MQTT_BROADCAST.md`.
+That contract is intentionally disabled by default and keeps MQTT as a read-only broadcast of canonical operator state rather than a control plane.
 
 Response shape on success (`200`):
 - `project` — requested project id

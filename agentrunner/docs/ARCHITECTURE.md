@@ -91,6 +91,9 @@ Compatibility and limitation notes:
 Human-visible Discord messages are **not** the source of truth.
 Structured state lives in result/handoff JSON artifacts and `ticks.ndjson`.
 
+Likewise, any future operator MQTT broadcast is a downstream snapshot adapter, not an authority.
+The MVP contract for that surface lives in `agentrunner/docs/OPERATOR_MQTT_BROADCAST.md` and is intentionally disabled by default.
+
 Discord output should be:
 - concise
 - role-prefixed (`Developer ›`, `Reviewer ›`, etc.)

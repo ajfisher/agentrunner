@@ -138,6 +138,9 @@ The reconciliation `sources` payload now explicitly includes `live_repo` alongsi
 
 Consumers should treat `operator_status.json` as the canonical operator-facing summary and treat raw files as mechanics truth for debugging, recovery, and rebuilds.
 
+For an optional downstream MQTT broadcast of this same operator snapshot, see `agentrunner/docs/OPERATOR_MQTT_BROADCAST.md`.
+That contract is disabled by default and explicitly preserves `operator_status.json` as the authority, with MQTT acting only as a read-only broadcast adapter.
+
 ## Optional local operator API contract
 
 The optional HTTP API exists to serve the canonical operator snapshot to colocated machine-facing consumers without asking them to parse terminal output.
