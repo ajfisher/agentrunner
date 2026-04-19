@@ -85,11 +85,42 @@ def test_routed_status_queue_and_initiatives_use_disposable_operator_artifact(tm
             },
             "resultHint": "Smoke coverage is now routed through the top-level CLI.",
             "warnings": [],
+            "reconciliation": {
+                "decision": "active",
+                "summary": "runtime lock and active run details agree on a live in-flight item",
+                "reasons": [
+                    {
+                        "code": "active_run",
+                        "source": "live_runtime",
+                        "severity": "info",
+                        "summary": "runtime lock and active run details agree on a live in-flight item",
+                        "precedence": 5,
+                    }
+                ],
+                "policy": {
+                    "name": "canonical_runtime_reconciliation",
+                    "version": 2,
+                    "precedenceOrder": [
+                        "integrity_conflicts",
+                        "stale_active_runtime",
+                        "live_repo_clean_overrides_stale_blocked_artifact",
+                        "last_completed_blocked",
+                        "active_runtime_lock",
+                        "queued_backlog_without_active_run",
+                        "idle_clean",
+                    ],
+                },
+            },
         },
     )
 
     for command, needles in {
-        "status": ["project: demo", "status: ACTIVE | developer-smoke | developer | feature/agentrunner/real-cli-surface | age=19s"],
+        "status": [
+            "project: demo",
+            "status: ACTIVE | developer-smoke | developer | feature/agentrunner/real-cli-surface | age=19s",
+            "reconciliation: active | winner=source=live_runtime, rule=active_run, p5 | runtime lock and active run details agree on a live in-flight item | reasons=1",
+            "operator hierarchy: canonical_runtime_reconciliation v2 | integrity_conflicts > stale_active_runtime > live_repo_clean_overrides_stale_blocked_ar… > last_completed_blocked > active_runtime_lock > queued_backlog_without_active_run > idle_clean",
+        ],
         "queue": ["queue: 2 item(s) | next=reviewer-smoke, manager-wrap", "reviewer-smoke | reviewer | feature/agentrunner/real-cli-surface | Review the smoke proof coverage.", "manager-wrap | manager | feature/agentrunner/real-cli-surface | Close the initiative cleanly."],
         "initiatives": ["initiative: agentrunner-real-cli-surface | phase=implementation | subtask=smoke-proof", "result hint: Smoke coverage is now routed through the top-level CLI."],
     }.items():
@@ -215,7 +246,8 @@ def test_status_rebuild_recovers_stale_blocked_merger_tail_when_repo_is_already_
 
     assert result.returncode == 0, result.stderr
     assert "status: IDLE-CLEAN" in result.stdout
-    assert "reconciliation: idle-clean | live repo truth is clean/current, so it outranks a stale blocked completion artifact | reasons=1" in result.stdout
+    assert "reconciliation: idle-clean | winner=source=live_repo, rule=live_repo_clean_overrides_stale_blocked_artifact, p3 | live repo truth is clean/current, so it outranks a stale blocked completion artifact | reasons=1" in result.stdout
+    assert "operator hierarchy: canonical_runtime_reconciliation v2 | integrity_conflicts > stale_active_runtime > live_repo_clean_overrides_stale_blocked_ar… > last_completed_blocked > active_runtime_lock > queued_backlog_without_active_run > idle_clean" in result.stdout
     assert "last completed: merger-blocked | merger | blocked" in result.stdout
 
 
@@ -257,5 +289,6 @@ def test_status_rebuild_keeps_repo_conflict_blocked_instead_of_auto_cleaning(tmp
 
     assert result.returncode == 0, result.stderr
     assert "status: BLOCKED" in result.stdout
-    assert "reconciliation: blocked | most recent completed item ended blocked | reasons=1" in result.stdout
+    assert "reconciliation: blocked | winner=source=result_artifacts, rule=last_completed_blocked, p4 | most recent completed item ended blocked | reasons=1" in result.stdout
+    assert "operator hierarchy: canonical_runtime_reconciliation v2 | integrity_conflicts > stale_active_runtime > live_repo_clean_overrides_stale_blocked_ar… > last_completed_blocked > active_runtime_lock > queued_backlog_without_active_run > idle_clean" in result.stdout
     assert "last completed: merger-blocked | merger | blocked" in result.stdout

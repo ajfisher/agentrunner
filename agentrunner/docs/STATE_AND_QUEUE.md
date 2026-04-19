@@ -116,6 +116,13 @@ Current precedence order:
 6. queued backlog without active work
 7. idle-clean fallback
 
+Operator-facing formatting contract:
+- `reconciliation:` should show the final decision plus the winning source/rule/precedence (`winner=source=..., rule=..., p...`)
+- `operator hierarchy:` should show the policy name/version plus the explicit precedence order
+- this is how an operator can tell which source won, why a stale blocked artifact was demoted, and which conditions still keep a blocked result authoritative
+
+The clean-tail override is intentionally narrow. A stale blocked completion artifact is only demoted when live repo truth is present/fresh, has a visible HEAD, is clean, and proves the repo is aligned with the expected branch policy (`branchMatchesExpected` or a clean fast-forwarded base where `branchIsBase` and `expectedBranchIsAncestorOfBase` are both true). If those conditions are not met, the blocked artifact still wins.
+
 The reconciliation `sources` payload now explicitly includes `live_repo` alongside `runtime_state`, `live_runtime`, `queue`, `initiative`, `recent_ticks`, and `result_artifacts`. `live_repo` is a read-only git/worktree inspection with freshness/authority metadata such as repo path, inspection timestamp, current branch/HEAD, branch-alignment checks, and worktree cleanliness. This lets operator surfaces explain why current repo reality may outrank older blocked artifacts without mutating mechanics state.
 
 Consumers should treat `operator_status.json` as the canonical operator-facing summary and treat raw files as mechanics truth for debugging, recovery, and rebuilds.

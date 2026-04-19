@@ -73,6 +73,32 @@ def test_status_prefers_artifact_when_present(state_dir: Path) -> None:
         },
         'resultHint': 'Clarified the operator surface split.',
         'warnings': [],
+        'reconciliation': {
+            'decision': 'active',
+            'summary': 'runtime lock and active run details agree on a live in-flight item',
+            'reasons': [
+                {
+                    'code': 'active_run',
+                    'source': 'live_runtime',
+                    'severity': 'info',
+                    'summary': 'runtime lock and active run details agree on a live in-flight item',
+                    'precedence': 5,
+                }
+            ],
+            'policy': {
+                'name': 'canonical_runtime_reconciliation',
+                'version': 2,
+                'precedenceOrder': [
+                    'integrity_conflicts',
+                    'stale_active_runtime',
+                    'live_repo_clean_overrides_stale_blocked_artifact',
+                    'last_completed_blocked',
+                    'active_runtime_lock',
+                    'queued_backlog_without_active_run',
+                    'idle_clean',
+                ],
+            },
+        },
     })
 
     result = run_cli('status', '--state-dir', str(state_dir))

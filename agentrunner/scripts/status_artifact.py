@@ -564,13 +564,43 @@ def format_reconciliation_line(artifact: dict[str, Any]) -> str:
     if not reconciliation:
         return "reconciliation: -"
     bits = [clip(reconciliation.get("decision") or "-", 24)]
+    reasons = reconciliation.get("reasons") if isinstance(reconciliation.get("reasons"), list) else []
+    winning_reason = reasons[0] if reasons and isinstance(reasons[0], dict) else None
+    if winning_reason:
+        source = winning_reason.get("source")
+        code = winning_reason.get("code")
+        precedence = winning_reason.get("precedence")
+        winner_bits = []
+        if source:
+            winner_bits.append(f"source={clip(source, 24)}")
+        if code:
+            winner_bits.append(f"rule={clip(code, 48)}")
+        if precedence is not None:
+            winner_bits.append(f"p{precedence}")
+        if winner_bits:
+            bits.append("winner=" + ", ".join(winner_bits))
     summary = reconciliation.get("summary")
     if summary:
         bits.append(clip(summary, 120))
-    reasons = reconciliation.get("reasons") if isinstance(reconciliation.get("reasons"), list) else []
     if reasons:
         bits.append(f"reasons={len(reasons)}")
     return f"reconciliation: {' | '.join(bits)}"
+
+
+def format_reconciliation_policy_line(artifact: dict[str, Any]) -> str:
+    reconciliation = artifact.get("reconciliation") if isinstance(artifact.get("reconciliation"), dict) else None
+    if not reconciliation:
+        return "operator hierarchy: -"
+    policy = reconciliation.get("policy") if isinstance(reconciliation.get("policy"), dict) else None
+    if not policy:
+        return "operator hierarchy: -"
+    order = policy.get("precedenceOrder") if isinstance(policy.get("precedenceOrder"), list) else []
+    policy_name = clip(policy.get("name") or "-", 48)
+    version = policy.get("version")
+    prefix = policy_name if version is None else f"{policy_name} v{version}"
+    if not order:
+        return f"operator hierarchy: {prefix}"
+    return f"operator hierarchy: {prefix} | {' > '.join(clip(item, 40) for item in order)}"
 
 
 def format_warning_summary_line(artifact: dict[str, Any]) -> str:
@@ -603,6 +633,7 @@ def format_status_lines(artifact: dict[str, Any], *, queue_preview: int = 3) -> 
     if runtime_line:
         lines.append(runtime_line)
     lines.append(format_reconciliation_line(artifact))
+    lines.append(format_reconciliation_policy_line(artifact))
     lines.append(format_result_hint_line(artifact))
     lines.append(format_warning_summary_line(artifact))
     return lines

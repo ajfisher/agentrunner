@@ -117,6 +117,12 @@ Rule of thumb:
 - use `status.py` only for recovery/debugging or when you intentionally want to refresh `operator_status.json`
 - use `tick_tailer.py` when you want a compact validated event timeline instead of the current snapshot
 
+Reconciliation visibility rules for operator/debug output:
+- `reconciliation:` should show the final decision plus the winning source/rule/precedence (`winner=source=..., rule=..., p...`)
+- `operator hierarchy:` should show the named policy/version plus the explicit precedence order
+- the live-repo clean-tail override is intentionally narrow: it only demotes a stale blocked artifact when live repo truth is present, fresh, clean, has a visible HEAD, and proves the repo is aligned with the expected branch policy
+- if those conditions are not met, the blocked artifact still wins and operator output should make that obvious
+
 ## Tick tailer helper
 
 For a compact recent-history view of tick activity, use:
