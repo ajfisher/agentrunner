@@ -147,6 +147,10 @@ def current_initiative_pointer(state: dict) -> dict | None:
     return pointer
 
 
+def is_terminal_success_phase(phase: object) -> bool:
+    return phase in ('completed', 'closed')
+
+
 def maybe_finalize_successful_initiative(state_dir: str, *, state: dict, queue_item: dict, initiative: dict, initiative_state_path: Path, initiative_state: dict, result: dict) -> bool:
     if queue_item.get('role') != 'merger':
         return False
@@ -212,6 +216,15 @@ def maybe_advance(state_dir: str) -> bool:
         result=result,
     ):
         return True
+
+    if is_terminal_success_phase(initiative_state.get('phase')):
+        pointer = current_initiative_pointer(state)
+        if pointer and pointer.get('initiativeId') == initiative.get('initiativeId'):
+            state.pop('initiative', None)
+            state['updatedAt'] = iso_now()
+            save_json(state_path, state)
+            return True
+        return False
 
     if role == 'manager':
         phase = initiative_state.get('phase')
