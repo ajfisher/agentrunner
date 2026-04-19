@@ -124,6 +124,7 @@ Proof-check bootstrap for a clean checkout:
 
 Rule of thumb:
 - reach for `python3 -m agentrunner status|queue|initiatives|watch --project <project>` first
+- use `python3 -m agentrunner api --host 127.0.0.1 --port 8765` when you want a tiny local read-only HTTP JSON adapter over the canonical operator snapshot
 - use `python3 agentrunner/scripts/operator_cli.py ...` when you need the direct compatibility path or are debugging the router/delegation layer
 - use `status.py` only for recovery/debugging or when you intentionally want to refresh `operator_status.json`
 - use `tick_tailer.py` when you want a compact validated event timeline instead of the current snapshot

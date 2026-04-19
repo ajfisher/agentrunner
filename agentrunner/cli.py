@@ -11,7 +11,7 @@ import argparse
 import sys
 from typing import Callable
 
-from agentrunner.scripts import enqueue_initiative, operator_cli
+from agentrunner.scripts import enqueue_initiative, operator_api, operator_cli
 
 Router = Callable[[list[str]], int]
 
@@ -24,6 +24,10 @@ def route_operator(command: str, argv: list[str]) -> int:
     return operator_cli.main([command, *argv])
 
 
+def route_api(argv: list[str]) -> int:
+    return operator_api.main(argv)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agentrunner",
@@ -32,7 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "command",
-        choices=["brief", "status", "queue", "initiatives", "watch"],
+        choices=["brief", "status", "queue", "initiatives", "watch", "api"],
         help="Top-level MVP command to run",
     )
     parser.add_argument(
@@ -57,6 +61,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if ns.command == "brief":
         return route_brief(passthrough)
+    if ns.command == "api":
+        return route_api(passthrough)
     return route_operator(ns.command, passthrough)
 
 

@@ -36,6 +36,7 @@ This is the canonical operator CLI entrypoint. It should summarize active/idle s
 
 Relationship between the operator helpers:
 - `operator_cli.py` = default operator surface for readable present-tense status/queue/initiative views, now consuming named snapshot accessors from `operator_data.py` rather than peeking through the raw artifact dict ad hoc
+- `operator_api.py` = tiny stdlib read-only HTTP adapter for downstream local tools that want JSON instead of terminal formatting
 - `operator_status.json` = blessed derivative artifact consumed by operator surfaces first
 - `status.py` = explicit rebuild/debug helper for refreshing the artifact from mechanics truth when an operator asks for it
 - `tick_tailer.py` = recent-history companion for validated tick activity, not the default current-status path
