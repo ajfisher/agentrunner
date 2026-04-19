@@ -221,6 +221,122 @@ def maybe_finalize_successful_initiative(state_dir: str, *, state: dict, queue_i
     return True
 
 
+def merger_result_passback(result: dict) -> dict | None:
+    if result.get('status') != 'blocked' or result.get('merged') is not False:
+        return None
+    blocker = result.get('mergeBlocker')
+    if not isinstance(blocker, dict):
+        return None
+    if blocker.get('classification') != 'repairable' or blocker.get('kind') != 'non_fast_forward':
+        return None
+    passback = blocker.get('passback')
+    if not isinstance(passback, dict):
+        return None
+    if passback.get('targetRole') != 'developer':
+        return None
+    return passback
+
+
+def enqueue_merger_remediation_item(state_dir: str, *, state: dict, last: dict, queue_item: dict, initiative: dict, initiative_state_path: Path, initiative_state: dict, result: dict) -> bool:
+    if queue_item.get('role') != 'merger':
+        return False
+    if initiative_state.get('phase') != 'closure-merger':
+        return False
+
+    passback = merger_result_passback(result)
+    if passback is None:
+        return False
+
+    initiative_id = initiative.get('initiativeId')
+    if not isinstance(initiative_id, str) or not initiative_id.strip():
+        return False
+
+    remediation = initiative_state.get('remediation') if isinstance(initiative_state.get('remediation'), dict) else {}
+    attempts = remediation.get('attempts') if isinstance(remediation.get('attempts'), list) else []
+    attempt_number = len(attempts) + 1
+    remediation_subtask_id = f'merger-remediation-{attempt_number}'
+    remediation_item_id = f'{initiative_id}-{remediation_subtask_id}'
+
+    reason = str(passback.get('reason') or '').strip() or 'Restore branch readiness so the initiative can return to closure review.'
+    action = str(passback.get('action') or '').strip() or 'repair'
+    branch = initiative_state.get('branch') or queue_item.get('branch')
+    base = initiative_state.get('base') or queue_item.get('base')
+    repo_path = queue_item.get('repo_path')
+    result_path = last.get('resultPath')
+
+    followup_item = {
+        'id': remediation_item_id,
+        'project': state.get('project'),
+        'role': 'developer',
+        'createdAt': iso_now(),
+        'repo_path': repo_path,
+        'branch': branch,
+        'base': base,
+        'goal': (
+            f'Closure remediation attempt {attempt_number} for initiative {initiative_id}. '
+            f'Perform the requested {action} work so {branch} is ready to merge into {base} again. '
+            f'{reason}'
+        ),
+        'checks': queue_item.get('checks', []),
+        'constraints': {
+            'initiativePhase': 'execution',
+            'closureRemediation': True,
+            'closureRemediationAttempt': attempt_number,
+            'closureSourceQueueItemId': queue_item.get('id'),
+            'requiresReReview': bool(passback.get('requiresReReview')),
+            'requiresMergeRetry': bool(passback.get('requiresMergeRetry')),
+        },
+        'contextFiles': queue_item.get('contextFiles', []),
+        'initiative': {
+            'initiativeId': initiative_id,
+            'subtaskId': remediation_subtask_id,
+            'managerBriefPath': initiative_state.get('managerBriefPath'),
+            'architectPlanPath': initiative_state.get('architectPlanPath'),
+            'branch': branch,
+            'base': base,
+        },
+        'origin': {
+            'requestedBy': queue_item.get('id'),
+            'sourceResultPath': result_path,
+            'mergeBlocker': result.get('mergeBlocker'),
+            'closureRemediationAttempt': attempt_number,
+        },
+    }
+    append_queue_event(state_dir, 'INSERT_FRONT', item=followup_item)
+
+    attempts.append({
+        'attempt': attempt_number,
+        'subtaskId': remediation_subtask_id,
+        'queueItemId': remediation_item_id,
+        'sourceQueueItemId': queue_item.get('id'),
+        'sourceResultPath': result_path,
+        'requestedAt': iso_now(),
+        'action': action,
+        'reason': reason,
+        'requiresReReview': bool(passback.get('requiresReReview')),
+        'requiresMergeRetry': bool(passback.get('requiresMergeRetry')),
+        'mergeBlocker': result.get('mergeBlocker'),
+        'status': 'queued',
+    })
+    remediation['attempts'] = attempts
+    remediation['lastAttempt'] = attempt_number
+    remediation['activeAttempt'] = attempt_number
+    initiative_state['remediation'] = remediation
+    initiative_state['phase'] = 'execution'
+    initiative_state['currentSubtaskId'] = remediation_subtask_id
+    completed = list(initiative_state.get('completedSubtasks') or [])
+    pending = [sid for sid in list(initiative_state.get('pendingSubtasks') or []) if sid != remediation_subtask_id]
+    pending.insert(0, remediation_subtask_id)
+    initiative_state['completedSubtasks'] = completed
+    initiative_state['pendingSubtasks'] = pending
+    save_json(initiative_state_path, initiative_state)
+
+    state['initiative'] = {'initiativeId': initiative_id, 'phase': initiative_state.get('phase'), 'statePath': str(initiative_state_path)}
+    state['updatedAt'] = iso_now()
+    save_json(Path(state_dir) / 'state.json', state)
+    return True
+
+
 def maybe_advance(state_dir: str) -> bool:
     state_path = Path(state_dir) / 'state.json'
     state = load_json(state_path, {})
@@ -238,8 +354,6 @@ def maybe_advance(state_dir: str) -> bool:
 
     result_path = last.get('resultPath') or (Path(state_dir) / 'results' / f'{qid}.json')
     result = load_json(result_path, {})
-    if result.get('status') != 'ok':
-        return False
 
     initiative = queue_item.get('initiative') if isinstance(queue_item.get('initiative'), dict) else None
     if not initiative or not initiative.get('initiativeId'):
@@ -258,6 +372,21 @@ def maybe_advance(state_dir: str) -> bool:
         result=result,
     ):
         return True
+
+    if enqueue_merger_remediation_item(
+        state_dir,
+        state=state,
+        last=last,
+        queue_item=queue_item,
+        initiative=initiative,
+        initiative_state_path=initiative_state_path,
+        initiative_state=initiative_state,
+        result=result,
+    ):
+        return True
+
+    if result.get('status') != 'ok':
+        return False
 
     if is_terminal_success_phase(initiative_state.get('phase')):
         pointer = current_initiative_pointer(state)
