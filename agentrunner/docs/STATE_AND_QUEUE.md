@@ -44,6 +44,9 @@ Relationship between the operator helpers:
 
 ## Canonical operator status artifact
 
+Shared code contract:
+- `agentrunner/scripts/operator_data.py` is the shared stdlib-only module that names the operator snapshot contract and centralizes read-only loading / bounded rebuild policy.
+
 Canonical location:
 - `/home/openclaw/.agentrunner/projects/<project>/operator_status.json`
 - equivalently: `~/.agentrunner/projects/<project>/operator_status.json`
@@ -54,6 +57,7 @@ Purpose:
 - remain strictly derivative of mechanics-owned runtime truth
 
 Minimum contract fields:
+- `contract` — names the per-project snapshot contract (`agentrunner.operator-status-snapshot`) and version
 - `project` — project id
 - `status` — stable reconciled operator decision (`active`, `blocked`, `idle-clean`, `idle-pending`, or `conflicted`)
 - `current` — active work summary or `null`

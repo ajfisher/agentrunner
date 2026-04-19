@@ -14,8 +14,10 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from .operator_data import OPERATOR_SNAPSHOT_CONTRACT, OPERATOR_STATUS_FILENAME
     from .reconciliation_policy import STALE_RUN_AFTER, reconcile_runtime_state
 except ImportError:  # pragma: no cover - script-mode fallback
+    from operator_data import OPERATOR_SNAPSHOT_CONTRACT, OPERATOR_STATUS_FILENAME
     from reconciliation_policy import STALE_RUN_AFTER, reconcile_runtime_state
 
 
@@ -418,6 +420,7 @@ def build_status_artifact(state_dir: Path, *, queue_preview: int = 3, tick_count
     ])
 
     artifact = {
+        "contract": dict(OPERATOR_SNAPSHOT_CONTRACT),
         "project": state.get("project") or state_dir.name,
         "status": reconciliation.get("decision"),
         "current": current,
@@ -454,7 +457,7 @@ def build_status_artifact(state_dir: Path, *, queue_preview: int = 3, tick_count
 
 
 def write_status_artifact(state_dir: Path, artifact: dict[str, Any]) -> Path:
-    path = state_dir / "operator_status.json"
+    path = state_dir / OPERATOR_STATUS_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(artifact, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

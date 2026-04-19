@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from .operator_data import CliUsageError, clip, infer_state_dir, load_operator_snapshot
     from .status_artifact import (
         build_status_artifact,
         format_current_line,
@@ -27,6 +28,7 @@ try:
         write_status_artifact,
     )
 except ImportError:  # pragma: no cover - script-mode fallback
+    from operator_data import CliUsageError, clip, infer_state_dir, load_operator_snapshot
     from status_artifact import (
         build_status_artifact,
         format_current_line,
@@ -39,24 +41,6 @@ except ImportError:  # pragma: no cover - script-mode fallback
         write_status_artifact,
     )
 
-DEFAULT_PROJECTS_ROOT = Path.home() / ".agentrunner" / "projects"
-
-
-class CliUsageError(RuntimeError):
-    """Raised when operator input is incomplete or contradictory."""
-
-
-def clip(value: Any, limit: int = 120) -> str:
-    if value is None:
-        return "-"
-    text = str(value).strip().replace("\n", " ")
-    text = " ".join(text.split())
-    if not text:
-        return "-"
-    if len(text) <= limit:
-        return text
-    return text[: max(1, limit - 1)] + "…"
-
 
 def warning_text(warning: Any) -> str | None:
     if not isinstance(warning, dict):
@@ -68,61 +52,6 @@ def warning_text(warning: Any) -> str | None:
     if details:
         return f"{severity} {code}: {summary} ({clip(details, 120)})"
     return f"{severity} {code}: {summary}"
-
-
-def parse_artifact(path: Path) -> dict[str, Any]:
-    data = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
-    if not isinstance(data, dict):
-        raise ValueError(f"{path.name} did not contain a JSON object")
-    return data
-
-
-def infer_state_dir(args: argparse.Namespace) -> Path:
-    if args.state_dir:
-        return Path(args.state_dir).expanduser().resolve()
-    if getattr(args, "project", None):
-        return (DEFAULT_PROJECTS_ROOT / args.project).resolve()
-    raise CliUsageError("provide --project or --state-dir")
-
-
-def load_operator_status(
-    state_dir: Path,
-    *,
-    queue_preview: int,
-    tick_count: int,
-    rebuild_missing: bool,
-    rebuild_malformed: bool,
-    write_rebuild: bool,
-) -> tuple[dict[str, Any] | None, list[str]]:
-    notes: list[str] = []
-    artifact_path = state_dir / "operator_status.json"
-    artifact: dict[str, Any] | None = None
-
-    if artifact_path.exists():
-        try:
-            artifact = parse_artifact(artifact_path)
-        except Exception as exc:
-            notes.append(f"warning: operator_status.json is malformed: {clip(exc, 160)}")
-            if rebuild_malformed:
-                artifact = build_status_artifact(state_dir, queue_preview=queue_preview, tick_count=tick_count)
-                notes.append("info: rebuilt operator status from mechanics files because --rebuild-malformed was set")
-                if write_rebuild:
-                    write_status_artifact(state_dir, artifact)
-                    notes.append(f"info: refreshed {artifact_path}")
-            else:
-                notes.append("hint: rerun with --rebuild-malformed to use the bounded manual fallback")
-    else:
-        notes.append(f"warning: operator status artifact missing at {artifact_path}")
-        if rebuild_missing:
-            artifact = build_status_artifact(state_dir, queue_preview=queue_preview, tick_count=tick_count)
-            notes.append("info: rebuilt operator status from mechanics files because --rebuild-missing was set")
-            if write_rebuild:
-                write_status_artifact(state_dir, artifact)
-                notes.append(f"info: wrote {artifact_path}")
-        else:
-            notes.append("hint: rerun with --rebuild-missing for a bounded manual rebuild")
-
-    return artifact, notes
 
 
 def format_queue_lines(artifact: dict[str, Any], *, queue_preview: int) -> list[str]:
@@ -187,13 +116,15 @@ def watch_loop(args: argparse.Namespace, state_dir: Path) -> int:
     interval = max(1.0, float(args.interval))
     iterations = 0
     while True:
-        artifact, notes = load_operator_status(
+        artifact, notes = load_operator_snapshot(
             state_dir,
             queue_preview=args.queue,
             tick_count=args.ticks,
             rebuild_missing=args.rebuild_missing,
             rebuild_malformed=args.rebuild_malformed,
             write_rebuild=args.write_rebuild,
+            build_status_artifact=build_status_artifact,
+            write_status_artifact=write_status_artifact,
         )
         if iterations:
             print()
@@ -238,16 +169,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        state_dir = infer_state_dir(args)
+        state_dir = infer_state_dir(state_dir=args.state_dir, project=args.project)
         if args.command == "watch":
             return watch_loop(args, state_dir)
-        artifact, notes = load_operator_status(
+        artifact, notes = load_operator_snapshot(
             state_dir,
             queue_preview=args.queue,
             tick_count=args.ticks,
             rebuild_missing=args.rebuild_missing,
             rebuild_malformed=args.rebuild_malformed,
             write_rebuild=args.write_rebuild,
+            build_status_artifact=build_status_artifact,
+            write_status_artifact=write_status_artifact,
         )
         if artifact is None:
             print_lines(notes)

@@ -3,6 +3,7 @@
   "title": "agentrunner operator status",
   "type": "object",
   "required": [
+    "contract",
     "project",
     "status",
     "current",
@@ -13,6 +14,18 @@
     "updatedAt"
   ],
   "properties": {
+    "contract": {
+      "type": "object",
+      "required": ["name", "version", "filename", "pathPattern", "ownership"],
+      "properties": {
+        "name": {"type": "string", "const": "agentrunner.operator-status-snapshot"},
+        "version": {"type": "integer", "const": 1},
+        "filename": {"type": "string", "const": "operator_status.json"},
+        "pathPattern": {"type": "string", "minLength": 1},
+        "ownership": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": true
+    },
     "project": {"type": "string", "minLength": 1},
     "status": {"type": "string", "enum": ["active", "blocked", "idle-clean", "idle-pending", "conflicted"]},
     "current": {
