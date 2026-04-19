@@ -11,7 +11,10 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from status_artifact import build_status_artifact, format_status_lines, write_status_artifact
+try:
+    from .status_artifact import build_status_artifact, format_status_lines, write_status_artifact
+except ImportError:  # pragma: no cover - script-mode fallback
+    from status_artifact import build_status_artifact, format_status_lines, write_status_artifact
 
 
 def main() -> int:

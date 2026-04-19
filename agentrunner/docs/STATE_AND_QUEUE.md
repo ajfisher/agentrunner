@@ -30,7 +30,8 @@ Queue events are the source of truth; `queue.json` is a convenience view.
 `operator_status.json` is also derivative: it is a blessed summary artifact for operator surfaces, not an authority for scheduling, enqueueing, or completion.
 
 For a quick read-only operator snapshot across these files, use:
-`python3 agentrunner/scripts/operator_cli.py status --project <project>`
+`python3 -m agentrunner status --project <project>`
+(or the underlying implementation entrypoint `python3 agentrunner/scripts/operator_cli.py status --project <project>`)
 This is the canonical operator CLI entrypoint. It should summarize active/idle state, a short queue view, the active initiative phase, the last completed item, and warning/result hints by consuming `operator_status.json` first.
 
 Relationship between the operator helpers:
@@ -113,7 +114,7 @@ Supported kinds:
 `queue.json` is a materialized view rebuilt by `queue_ledger.py`.
 Direct edits to `queue.json` are not authoritative and may be overwritten on the next ledger replay.
 
-For initiative kickoff specifically, the supported operator path is `enqueue_initiative.py`, which:
+For initiative kickoff specifically, the supported operator path is `agentrunner brief` (delegating to `enqueue_initiative.py`), which:
 - validates exactly one manager-brief source
 - writes or consumes the canonical `initiatives/<initiativeId>/brief.json` artifact
 - rejects duplicate initiative ids already present in queue, current state, or initiative-local artifacts

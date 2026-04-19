@@ -8,7 +8,10 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from initiative_coordinator import append_queue_event, ensure_initiative_paths
+try:
+    from .initiative_coordinator import append_queue_event, ensure_initiative_paths
+except ImportError:  # pragma: no cover - script-mode fallback
+    from initiative_coordinator import append_queue_event, ensure_initiative_paths
 
 ROOT = Path('/home/openclaw/projects/agentrunner')
 STATE_ROOT = Path('/home/openclaw/.agentrunner/projects')
@@ -279,7 +282,7 @@ def run_reliability_poll(*, project: str, state_dir: Path) -> tuple[str, list[st
     return summary, lines
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description='Preflight and enqueue a new initiative kickoff item.')
     ap.add_argument('--project', required=True)
     ap.add_argument('--initiative-id', required=True)
@@ -292,7 +295,7 @@ def main() -> int:
     ap.add_argument('--manager-brief-json')
     ap.add_argument('--manager-brief-stdin', action='store_true')
     ap.add_argument('--poll-after-enqueue', action='store_true', help='Run one reliability_poll.py pass for this project after enqueue completes')
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     brief, brief_source, brief_source_path = load_brief_from_args(args)
     state_dir = Path(args.state_dir) if args.state_dir else (STATE_ROOT / args.project)

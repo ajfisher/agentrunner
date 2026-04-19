@@ -56,6 +56,30 @@ Run invoker every minute:
 * * * * * /usr/bin/python3 /home/openclaw/projects/agentrunner/agentrunner/scripts/invoker.py --project picv_spike --state-dir /home/openclaw/.agentrunner/projects/picv_spike --announce --channel discord --to channel:1477159463143084217
 ```
 
+## Canonical MVP CLI surface
+
+The MVP command tree is now standardized around a thin top-level router:
+
+- `agentrunner brief`
+- `agentrunner status`
+- `agentrunner queue`
+- `agentrunner initiatives`
+- `agentrunner watch`
+
+Current invocation during development:
+
+```bash
+python3 -m agentrunner status --project picv_spike
+```
+
+Routing contract:
+- `brief` delegates to `agentrunner/scripts/enqueue_initiative.py` via `enqueue_initiative.main(argv)`
+- `status|queue|initiatives|watch` delegate to `agentrunner/scripts/operator_cli.py` via `operator_cli.main([subcommand, *argv])`
+- passthrough args are forwarded unchanged after the top-level subcommand; an optional `--` separator is accepted and stripped by the router before delegation
+- routed commands intentionally preserve the underlying script exit codes instead of inventing new router-specific semantics
+
+This keeps the top-level CLI canonical without duplicating mechanics logic in a second implementation.
+
 ## Operator status CLI
 
 Use the canonical operator CLI entrypoint for read-only status/queue/initiative views.
@@ -63,6 +87,7 @@ It prefers `operator_status.json` and only falls back to a bounded manual rebuil
 
 ```bash
 python3 agentrunner/scripts/operator_cli.py status --project picv_spike
+python3 -m agentrunner status --project picv_spike
 ```
 
 Useful variants:

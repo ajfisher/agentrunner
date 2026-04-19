@@ -14,17 +14,30 @@ import time
 from pathlib import Path
 from typing import Any
 
-from status_artifact import (
-    build_status_artifact,
-    format_current_line,
-    format_initiative_summary_line,
-    format_last_completed_line,
-    format_queue_summary_lines,
-    format_result_hint_line,
-    format_status_lines,
-    format_warning_summary_line,
-    write_status_artifact,
-)
+try:
+    from .status_artifact import (
+        build_status_artifact,
+        format_current_line,
+        format_initiative_summary_line,
+        format_last_completed_line,
+        format_queue_summary_lines,
+        format_result_hint_line,
+        format_status_lines,
+        format_warning_summary_line,
+        write_status_artifact,
+    )
+except ImportError:  # pragma: no cover - script-mode fallback
+    from status_artifact import (
+        build_status_artifact,
+        format_current_line,
+        format_initiative_summary_line,
+        format_last_completed_line,
+        format_queue_summary_lines,
+        format_result_hint_line,
+        format_status_lines,
+        format_warning_summary_line,
+        write_status_artifact,
+    )
 
 DEFAULT_PROJECTS_ROOT = Path.home() / ".agentrunner" / "projects"
 
