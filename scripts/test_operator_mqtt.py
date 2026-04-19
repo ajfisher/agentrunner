@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -201,3 +202,22 @@ def test_maybe_publish_operator_snapshot_degrades_publish_failures_to_notes(stat
     assert 'publish failed' in result.note
     assert 'broker unavailable for test' in result.note
     assert not publish_state_path(state_dir).exists()
+
+
+def disposable_state_dir() -> Path:
+    state_dir = Path(tempfile.mkdtemp(prefix='operator-mqtt-state-')) / 'state'
+    state_dir.mkdir(parents=True, exist_ok=True)
+    return state_dir
+
+
+def main() -> int:
+    test_build_publish_payload_uses_canonical_snapshot_accessors(disposable_state_dir())
+    test_maybe_publish_operator_snapshot_is_safe_noop_when_disabled(disposable_state_dir())
+    test_maybe_publish_operator_snapshot_publishes_once_then_quiets_until_changed(disposable_state_dir())
+    test_maybe_publish_operator_snapshot_degrades_publish_failures_to_notes(disposable_state_dir())
+    print('ok: operator MQTT proof checks executed via direct runner, including canonical snapshot accessors and disabled/failure degrade paths')
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

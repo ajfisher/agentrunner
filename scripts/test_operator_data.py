@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -291,9 +292,8 @@ def test_snapshot_accessors_cover_minimum_adapter_fields(state_dir: Path) -> Non
     assert snapshot_updated_at(loaded) == artifact['updatedAt']
 
 
-def test_resolve_operator_snapshot_returns_structured_read_model_from_project(state_dir: Path, monkeypatch) -> None:
+def test_resolve_operator_snapshot_returns_structured_read_model_from_project(state_dir: Path) -> None:
     seed_runtime_truth(state_dir)
-    monkeypatch.setattr('operator_data.DEFAULT_PROJECTS_ROOT', state_dir.parent)
 
     snapshot = resolve_operator_snapshot(
         project=state_dir.name,
@@ -336,3 +336,34 @@ def test_resolve_operator_snapshot_accepts_path_input_without_cli_formatting(sta
     assert snapshot.artifact_path == operator_snapshot_path(state_dir.resolve())
     assert snapshot.artifact == artifact
     assert snapshot.notes == ()
+
+
+def disposable_state_dir() -> Path:
+    state_dir = Path(tempfile.mkdtemp(prefix='operator-data-state-')) / 'state'
+    state_dir.mkdir(parents=True, exist_ok=True)
+    return state_dir
+
+
+def main() -> int:
+    test_load_operator_snapshot_prefers_canonical_artifact_without_rebuild(disposable_state_dir())
+    test_load_operator_snapshot_rebuilds_missing_only_when_explicit(disposable_state_dir())
+    test_load_operator_snapshot_rebuilds_malformed_artifact_with_bounded_fallback(disposable_state_dir())
+    test_snapshot_accessors_cover_minimum_adapter_fields(disposable_state_dir())
+
+    state_dir = disposable_state_dir()
+    import operator_data as operator_data_module  # noqa: WPS433,E402
+
+    original_projects_root = operator_data_module.DEFAULT_PROJECTS_ROOT
+    try:
+        operator_data_module.DEFAULT_PROJECTS_ROOT = state_dir.parent
+        test_resolve_operator_snapshot_returns_structured_read_model_from_project(state_dir)
+    finally:
+        operator_data_module.DEFAULT_PROJECTS_ROOT = original_projects_root
+
+    test_resolve_operator_snapshot_accepts_path_input_without_cli_formatting(disposable_state_dir())
+    print('ok: operator data proof checks executed via direct runner, including canonical artifact loading, rebuild fallbacks, and named snapshot accessors')
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
