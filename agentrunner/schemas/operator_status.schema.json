@@ -11,6 +11,7 @@
     "initiative",
     "lastCompleted",
     "warnings",
+    "reconciliation",
     "updatedAt"
   ],
   "properties": {

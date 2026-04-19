@@ -13,6 +13,11 @@ authors = [
 ]
 license = { text = "Proprietary" }
 
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<9"
+]
+
 [project.scripts]
 agentrunner = "agentrunner.cli:main"
 

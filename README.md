@@ -117,6 +117,11 @@ Regression proof coverage for the shared operator data layer now explicitly chec
 - bounded fallback only when `--rebuild-missing` / `--rebuild-malformed` is explicitly requested
 - minimum accessor fields future TUI / API / MQTT / web adapters will rely on (`status`, `current`, `queue`, `initiative`, `lastCompleted`, `warnings`, `reconciliation`, `updatedAt`)
 
+Proof-check bootstrap for a clean checkout:
+- run `./scripts/bootstrap_pytest.sh`
+- then run `.venv/bin/pytest -q`
+- the dev extra in `pyproject.toml` currently installs `pytest` for this proof path
+
 Rule of thumb:
 - reach for `python3 -m agentrunner status|queue|initiatives|watch --project <project>` first
 - use `python3 agentrunner/scripts/operator_cli.py ...` when you need the direct compatibility path or are debugging the router/delegation layer

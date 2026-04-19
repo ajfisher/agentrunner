@@ -66,8 +66,13 @@ Minimum contract fields:
 - `initiative` — initiative id + current phase summary when known
 - `lastCompleted` — most recent completed/blocked item summary when known
 - `warnings` — zero or more structured warning objects
-- `reconciliation` — explicit source/reason/preference breakdown for how the decision was derived
+- `reconciliation` — explicit source/reason/preference breakdown for how the decision was derived; this is part of the required minimum contract, not an optional extension
 - `updatedAt` — ISO-8601 timestamp for when the summary was refreshed
+
+Proof-check bootstrap for reviewers in a clean checkout:
+- run `./scripts/bootstrap_pytest.sh`
+- then run `.venv/bin/pytest -q`
+- `pyproject.toml` exposes a `dev` extra so the bootstrap installs the documented pytest dependency instead of relying on ambient global packages
 
 Recommended `current` fields:
 - `queueItemId`
