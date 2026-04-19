@@ -540,6 +540,46 @@ def _needs_merger_passback_hint(result: dict) -> bool:
     return 'ff-only' in summary or 'fast-forward only' in summary or 'non-fast-forward' in summary
 
 
+def _merge_blocker(result: dict) -> dict:
+    blocker = result.get('mergeBlocker')
+    if not isinstance(blocker, dict):
+        return {}
+    return blocker
+
+
+def _merger_stop_line(result: dict) -> str | None:
+    blocker = _merge_blocker(result)
+    if not blocker:
+        return None
+
+    detail = blocker.get('detail')
+    if isinstance(detail, str) and detail.strip():
+        return f'- Detail: {detail.strip()}'
+
+    stop_conditions = blocker.get('stopConditions')
+    if isinstance(stop_conditions, list):
+        cleaned = [str(item).strip() for item in stop_conditions if isinstance(item, str) and item.strip()]
+        if cleaned:
+            return f'- Stop conditions: {"; ".join(cleaned[:2])}'
+
+    passback = blocker.get('passback')
+    if isinstance(passback, dict):
+        action = str(passback.get('action') or '').strip()
+        reason = str(passback.get('reason') or '').strip()
+        target_role = str(passback.get('targetRole') or '').strip()
+        bits = []
+        if target_role:
+            bits.append(target_role)
+        if action:
+            bits.append(action)
+        if reason:
+            bits.append(reason)
+        if bits:
+            return f'- Passback: {" — ".join(bits[:3])}'
+
+    return None
+
+
 def format_operator_summary(role: str, result: dict) -> str:
     explicit = result.get('operatorSummary')
     if isinstance(explicit, str) and explicit.strip():
