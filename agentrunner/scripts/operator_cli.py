@@ -158,7 +158,20 @@ def print_lines(lines: list[str]) -> None:
         print(line)
 
 
+def render_snapshot(command: str, artifact: dict[str, Any] | None, notes: list[str], *, queue_preview: int) -> list[str]:
+    lines: list[str] = []
+    if artifact is not None:
+        lines.extend(render_command(command, artifact, queue_preview=queue_preview))
+    else:
+        lines.append("status: unavailable")
+    if notes:
+        lines.append("notes:")
+        lines.extend(f"  - {note}" for note in notes)
+    return lines
+
+
 def watch_loop(args: argparse.Namespace, state_dir: Path) -> int:
+    interval = max(1.0, float(args.interval))
     iterations = 0
     while True:
         artifact, notes = load_operator_status(
@@ -171,21 +184,14 @@ def watch_loop(args: argparse.Namespace, state_dir: Path) -> int:
         )
         if iterations:
             print()
-        print(f"== {time.strftime('%Y-%m-%d %H:%M:%S %z')} ==")
+        print(f"== {time.strftime('%Y-%m-%d %H:%M:%S %z')} | every {interval:g}s ==")
+        print(f"project: {args.project or state_dir.name}")
         print(f"state dir: {state_dir}")
-        print(f"source: {'operator_status.json' if artifact is not None else 'missing-artifact'}")
-        if artifact is not None:
-            print_lines(render_command("status", artifact, queue_preview=args.queue))
-        else:
-            print("status: unavailable")
-        if notes:
-            print("notes:")
-            for note in notes:
-                print(f"  - {note}")
+        print_lines(render_snapshot("status", artifact, notes, queue_preview=args.queue))
         iterations += 1
         if args.count and iterations >= args.count:
             return 0
-        time.sleep(max(1.0, float(args.interval)))
+        time.sleep(interval)
 
 
 def build_parser() -> argparse.ArgumentParser:
