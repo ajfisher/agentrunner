@@ -1,6 +1,12 @@
 # Runtime state is not stored in this repo
 *.pyc
 __pycache__/
+.pytest_cache/
 .venv/
 venv/
 .DS_Store
+
+# Packaging / build artefacts
+build/
+dist/
+*.egg-info/
