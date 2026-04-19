@@ -46,6 +46,7 @@ Relationship between the operator helpers:
 
 Shared code contract:
 - `agentrunner/scripts/operator_data.py` is the shared stdlib-only module that names the operator snapshot contract and centralizes read-only loading / bounded rebuild policy.
+- The shared layer is regression-tested for three operator-critical behaviors: canonical-artifact reads, explicit missing/malformed rebuild fallback, and the minimum named accessor fields downstream adapters rely on.
 
 Canonical location:
 - `/home/openclaw/.agentrunner/projects/<project>/operator_status.json`

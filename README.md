@@ -108,8 +108,14 @@ How the operator surfaces fit together:
 - `python3 -m agentrunner status|queue|initiatives|watch` is the preferred operator entrypoint.
 - `operator_cli.py` is the lower-level compatibility implementation surface underneath that router.
 - `operator_status.json` is the blessed derivative artifact that keeps current-state views compact and machine-readable.
+- `operator_data.py` is the shared stdlib-only read model that owns artifact-first loading, bounded missing/malformed rebuild fallback, and the named snapshot accessors downstream adapters should use instead of poking through raw dicts.
 - `status.py` is the explicit rebuild/debug helper when you intentionally want to regenerate the artifact from mechanics files.
 - `tick_tailer.py` is the recent-history companion for "what just happened?", not a replacement for the status artifact.
+
+Regression proof coverage for the shared operator data layer now explicitly checks:
+- canonical-artifact reads without opportunistic raw-file archaeology
+- bounded fallback only when `--rebuild-missing` / `--rebuild-malformed` is explicitly requested
+- minimum accessor fields future TUI / API / MQTT / web adapters will rely on (`status`, `current`, `queue`, `initiative`, `lastCompleted`, `warnings`, `reconciliation`, `updatedAt`)
 
 Rule of thumb:
 - reach for `python3 -m agentrunner status|queue|initiatives|watch --project <project>` first

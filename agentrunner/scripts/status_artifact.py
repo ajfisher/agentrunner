@@ -30,6 +30,7 @@ try:
         snapshot_warnings,
         write_status_artifact,
     )
+    from .reconciliation_policy import STALE_RUN_AFTER
 except ImportError:  # pragma: no cover - script-mode fallback
     from operator_data import (
         build_status_artifact,
@@ -47,6 +48,7 @@ except ImportError:  # pragma: no cover - script-mode fallback
         snapshot_warnings,
         write_status_artifact,
     )
+    from reconciliation_policy import STALE_RUN_AFTER
 
 
 def format_current_line(artifact: dict[str, Any]) -> str:
@@ -187,7 +189,7 @@ def format_reconciliation_policy_line(artifact: dict[str, Any]) -> str:
     prefix = policy_name if version is None else f"{policy_name} v{version}"
     if not order:
         return f"operator hierarchy: {prefix}"
-    return f"operator hierarchy: {prefix} | {' > '.join(clip(item, 40) for item in order)}"
+    return f"operator hierarchy: {prefix} | {' > '.join(clip(item, 43) for item in order)}"
 
 
 def format_warning_summary_line(artifact: dict[str, Any]) -> str:

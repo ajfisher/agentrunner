@@ -603,17 +603,17 @@ def load_operator_snapshot(
             notes.append(f"warning: {OPERATOR_STATUS_FILENAME} is malformed: {clip(exc, 160)}")
             if rebuild_malformed:
                 artifact = build_fn(state_dir, queue_preview=queue_preview, tick_count=tick_count)
-                notes.append("info: rebuilt operator snapshot from mechanics files because --rebuild-malformed was set")
+                notes.append("info: rebuilt operator status from mechanics files because --rebuild-malformed was set")
                 if write_rebuild:
                     write_fn(state_dir, artifact)
                     notes.append(f"info: refreshed {artifact_path}")
             else:
                 notes.append("hint: rerun with --rebuild-malformed to use the bounded manual fallback")
     else:
-        notes.append(f"warning: operator snapshot missing at {artifact_path}")
+        notes.append(f"warning: operator status artifact missing at {artifact_path}")
         if rebuild_missing:
             artifact = build_fn(state_dir, queue_preview=queue_preview, tick_count=tick_count)
-            notes.append("info: rebuilt operator snapshot from mechanics files because --rebuild-missing was set")
+            notes.append("info: rebuilt operator status from mechanics files because --rebuild-missing was set")
             if write_rebuild:
                 write_fn(state_dir, artifact)
                 notes.append(f"info: wrote {artifact_path}")
