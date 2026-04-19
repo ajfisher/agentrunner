@@ -27,6 +27,17 @@ Prefer queue items that include:
 - `constraints.approvedByReviewer`
 - optional approval source reference (e.g. prior reviewer queue item id / result path)
 
+## Regression coverage added after the first proof
+The merger-remediation pass now has focused regression scripts covering:
+- repairable `non_fast_forward` blockers routing a bounded Developer remediation item
+- a remediation fix returning through the normal Reviewer lane and re-queuing `closure-merger`
+- unsafe / ambiguous blockers halting remediation instead of silently looping another passback
+
+See:
+- `scripts/test_merger_passback_remediation_routing.py`
+- `scripts/test_merger_passback_review_to_closure_retry.py`
+- `scripts/test_merger_passback_unsafe_blocker_halt.py`
+
 ## Why this proof was valuable
 This is exactly the kind of bug that would be easy to miss in a toy success path.
 The proof showed that mechanics bookkeeping can be correct while the cognition-layer sequencing is still unsafe.
