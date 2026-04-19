@@ -137,6 +137,44 @@ def enqueue_first_subtask(state_dir: str, *, project: str, queue_item: dict, ini
     initiative_state['completedSubtasks'] = []
 
 
+def current_initiative_pointer(state: dict) -> dict | None:
+    pointer = state.get('initiative') if isinstance(state.get('initiative'), dict) else None
+    if not pointer:
+        return None
+    initiative_id = pointer.get('initiativeId')
+    if not isinstance(initiative_id, str) or not initiative_id.strip():
+        return None
+    return pointer
+
+
+def maybe_finalize_successful_initiative(state_dir: str, *, state: dict, queue_item: dict, initiative: dict, initiative_state_path: Path, initiative_state: dict, result: dict) -> bool:
+    if queue_item.get('role') != 'merger':
+        return False
+    if result.get('status') != 'ok' or result.get('merged') is not True:
+        return False
+    if state.get('running') or state.get('current'):
+        return False
+
+    queue = load_json(Path(state_dir) / 'queue.json', [])
+    if not isinstance(queue, list) or queue:
+        return False
+
+    pointer = current_initiative_pointer(state)
+    initiative_id = initiative.get('initiativeId')
+    if pointer and pointer.get('initiativeId') != initiative_id:
+        return False
+
+    initiative_state['phase'] = 'completed'
+    initiative_state['currentSubtaskId'] = None
+    save_json(initiative_state_path, initiative_state)
+
+    if pointer:
+        state.pop('initiative', None)
+        state['updatedAt'] = iso_now()
+        save_json(Path(state_dir) / 'state.json', state)
+    return True
+
+
 def maybe_advance(state_dir: str) -> bool:
     state_path = Path(state_dir) / 'state.json'
     state = load_json(state_path, {})
@@ -163,6 +201,17 @@ def maybe_advance(state_dir: str) -> bool:
     paths = ensure_initiative_paths(state_dir, initiative)
     initiative_state_path = Path(paths['initiativeStatePath'])
     initiative_state = load_json(initiative_state_path, {})
+
+    if maybe_finalize_successful_initiative(
+        state_dir,
+        state=state,
+        queue_item=queue_item,
+        initiative=initiative,
+        initiative_state_path=initiative_state_path,
+        initiative_state=initiative_state,
+        result=result,
+    ):
+        return True
 
     if role == 'manager':
         phase = initiative_state.get('phase')
