@@ -356,6 +356,45 @@ def validate_result_artifact(result: object, *, expected_role: str) -> tuple[dic
             for i, finding in enumerate(findings):
                 if not isinstance(finding, dict):
                     errors.append(f'findings[{i}] must be an object')
+    elif role == 'merger':
+        if not isinstance(normalized.get('merged'), bool):
+            errors.append('merger result must include merged as boolean')
+        if 'commit' not in normalized:
+            errors.append('merger result must include commit (nullable is allowed)')
+        elif normalized.get('commit') is not None and not isinstance(normalized.get('commit'), str):
+            errors.append('merger commit must be a string or null')
+        if normalized.get('status') == 'blocked' and normalized.get('merged') is False:
+            blocker = normalized.get('mergeBlocker')
+            if not isinstance(blocker, dict):
+                errors.append('blocked merger result must include mergeBlocker object')
+            else:
+                classification = blocker.get('classification')
+                kind = blocker.get('kind')
+                if classification not in ('repairable', 'terminal'):
+                    errors.append('mergeBlocker.classification must be repairable or terminal')
+                if not isinstance(kind, str) or not kind.strip():
+                    errors.append('mergeBlocker.kind must be a non-empty string')
+                if classification == 'repairable':
+                    if kind != 'non_fast_forward':
+                        errors.append('repairable merger blockers are limited to non_fast_forward in MVP')
+                    passback = blocker.get('passback')
+                    if not isinstance(passback, dict):
+                        errors.append('repairable merger blocker must include passback object')
+                    else:
+                        if not isinstance(passback.get('targetRole'), str) or not passback.get('targetRole').strip():
+                            errors.append('mergeBlocker.passback.targetRole must be a non-empty string')
+                        if not isinstance(passback.get('action'), str) or not passback.get('action').strip():
+                            errors.append('mergeBlocker.passback.action must be a non-empty string')
+                        if not isinstance(passback.get('reason'), str) or not passback.get('reason').strip():
+                            errors.append('mergeBlocker.passback.reason must be a non-empty string')
+                        if not isinstance(passback.get('requiresReReview'), bool):
+                            errors.append('mergeBlocker.passback.requiresReReview must be boolean')
+                        if not isinstance(passback.get('requiresMergeRetry'), bool):
+                            errors.append('mergeBlocker.passback.requiresMergeRetry must be boolean')
+                if classification == 'terminal' and kind == 'ambiguous_readiness':
+                    stop_conditions = blocker.get('stopConditions')
+                    if not isinstance(stop_conditions, list) or not [x for x in stop_conditions if isinstance(x, str) and x.strip()]:
+                        errors.append('ambiguous_readiness merger blocker must include non-empty stopConditions list')
 
     request_extra = normalized.get('requestExtraDevTurn', normalized.get('request_extra_dev_turn'))
     if request_extra is not None and not isinstance(request_extra, bool):
@@ -556,6 +595,12 @@ def format_operator_summary(role: str, result: dict) -> str:
         commit = result.get('commit')
         if commit:
             lines.append(f'- Commit: {commit}')
+        blocker = _merge_blocker(result)
+        if blocker.get('classification') and blocker.get('kind'):
+            lines.append(f"- Blocker: {blocker.get('classification')} / {blocker.get('kind')}")
+        stop_line = _merger_stop_line(result)
+        if stop_line:
+            lines.append(stop_line)
         if _needs_merger_passback_hint(result):
             lines.append('- Next step: hand this back to Developer for a rebase/passback fix, then re-review and retry merge')
     return '\n'.join(lines[:6])

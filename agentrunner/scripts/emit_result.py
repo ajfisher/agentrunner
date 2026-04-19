@@ -36,6 +36,15 @@ def main() -> int:
     ap.add_argument('--check', action='append', default=[])
     ap.add_argument('--finding-json', action='append', default=[])
     ap.add_argument('--operator-line', action='append', default=[])
+    ap.add_argument('--blocker-classification')
+    ap.add_argument('--blocker-kind')
+    ap.add_argument('--blocker-detail')
+    ap.add_argument('--passback-role')
+    ap.add_argument('--passback-action')
+    ap.add_argument('--passback-reason')
+    ap.add_argument('--passback-requires-rereview')
+    ap.add_argument('--passback-requires-merge-retry')
+    ap.add_argument('--stop-condition', action='append', default=[])
     args = ap.parse_args()
 
     checks = []
@@ -70,6 +79,35 @@ def main() -> int:
     }[args.role]
     operator_lines = [prefix] + [f'- {line}' for line in args.operator_line]
 
+    merge_blocker = None
+    if any([
+        args.blocker_classification,
+        args.blocker_kind,
+        args.blocker_detail,
+        args.passback_role,
+        args.passback_action,
+        args.passback_reason,
+        args.passback_requires_rereview is not None,
+        args.passback_requires_merge_retry is not None,
+        args.stop_condition,
+    ]):
+        merge_blocker = {
+            'classification': args.blocker_classification,
+            'kind': args.blocker_kind,
+            'detail': args.blocker_detail,
+        }
+        passback = {
+            'targetRole': args.passback_role,
+            'action': args.passback_action,
+            'reason': args.passback_reason,
+            'requiresReReview': parse_bool(args.passback_requires_rereview),
+            'requiresMergeRetry': parse_bool(args.passback_requires_merge_retry),
+        }
+        if any(value is not None for value in passback.values()):
+            merge_blocker['passback'] = passback
+        if args.stop_condition:
+            merge_blocker['stopConditions'] = list(args.stop_condition)
+
     obj = {
         'status': args.status,
         'role': args.role,
@@ -84,6 +122,8 @@ def main() -> int:
         'operatorSummary': '\n'.join(operator_lines[:6]),
         'writtenAt': iso_now(),
     }
+    if merge_blocker is not None:
+        obj['mergeBlocker'] = merge_blocker
 
     os.makedirs(os.path.dirname(args.path), exist_ok=True)
     tmp = args.path + '.tmp'

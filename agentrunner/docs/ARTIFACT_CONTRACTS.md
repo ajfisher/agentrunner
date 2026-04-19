@@ -141,6 +141,39 @@ Important:
 - treat `git merge --ff-only ...` as the actual side-effecting merge action, not as a harmless preflight check
 - if `merged` is `false`, repo state should remain unchanged
 
+### Blocked merger closure-blocker contract
+When a Merger result is `status=blocked` and `merged=false`, it should classify the closure blocker explicitly via `mergeBlocker`.
+
+Required fields:
+- `mergeBlocker.classification` — `repairable` or `terminal`
+- `mergeBlocker.kind` — stable machine-readable blocker kind
+
+Optional but recommended fields:
+- `mergeBlocker.detail` — concise human-readable explanation
+- `mergeBlocker.passback` — required for repairable blockers in MVP
+- `mergeBlocker.stopConditions` — required for ambiguous terminal blockers in MVP
+
+#### MVP repairable blocker kinds
+Only the following repairable blocker class is in-scope for MVP passback:
+- `non_fast_forward` — the source branch is no longer fast-forward mergeable onto the target and needs a Developer passback/rebase before re-review + merge retry
+
+For `classification=repairable`, emit:
+- `mergeBlocker.passback.targetRole` — usually `developer`
+- `mergeBlocker.passback.action` — recommended next action such as `rebase`
+- `mergeBlocker.passback.reason` — concise reason for the passback
+- `mergeBlocker.passback.requiresReReview` — boolean
+- `mergeBlocker.passback.requiresMergeRetry` — boolean
+
+#### MVP terminal blocker kinds
+Common terminal blocker kinds include:
+- `approval_missing`
+- `ambiguous_readiness`
+- `unexpected_git_state`
+- `unsupported_merge_policy`
+
+Terminal means the Merger should stop rather than invent a repair path.
+For `kind=ambiguous_readiness`, emit `mergeBlocker.stopConditions` with concise operator-visible conditions explaining what must be clarified before another merge attempt.
+
 ### Minimal valid example
 ```json
 {
