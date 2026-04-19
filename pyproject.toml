@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentrunner"
+version = "0.1.0"
+description = "Deterministic mechanics layer and CLI surface for AgentRunner"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "OpenClaw" }
+]
+license = { text = "Proprietary" }
+
+[project.scripts]
+agentrunner = "agentrunner.cli:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["agentrunner*"]
+exclude = ["scripts*"]
