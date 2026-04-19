@@ -9,12 +9,45 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / 'agentrunner/scripts/enqueue_initiative.py'
 
 
 def write_json(path: Path, obj) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(obj, indent=2) + '\n')
+
+
+def assert_conflicting_enqueue_blocked(*, repo_path: Path, state_dir: Path, initiative_id: str, expected: str, brief_path: Path) -> None:
+    state_path = state_dir / 'state.json'
+    queue_path = state_dir / 'queue.json'
+    before_state = state_path.read_text()
+    before_queue = queue_path.read_text()
+
+    cmd = [
+        sys.executable,
+        str(repo_path / 'agentrunner/scripts/enqueue_initiative.py'),
+        '--project', 'agentrunner',
+        '--initiative-id', initiative_id,
+        '--branch', 'feature/agentrunner/enqueue-cli',
+        '--base', 'master',
+        '--repo-path', str(repo_path),
+        '--state-dir', str(state_dir),
+        '--manager-brief-path', str(brief_path),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode == 0:
+        raise SystemExit(f'expected conflicting enqueue for {initiative_id} to fail, but it succeeded')
+    combined = proc.stdout + proc.stderr
+    if expected not in combined:
+        raise SystemExit(f'missing expected conflict message for {initiative_id}: {combined}')
+
+    after_state = state_path.read_text()
+    if after_state != before_state:
+        raise SystemExit(f'state.json changed despite preflight failure for {initiative_id}')
+    after_queue = queue_path.read_text()
+    if after_queue != before_queue:
+        raise SystemExit(f'queue.json changed despite preflight failure for {initiative_id}')
+    if (state_dir / f'initiatives/{initiative_id}').exists():
+        raise SystemExit(f'initiative scaffolding was created for blocked enqueue {initiative_id}')
 
 
 def main() -> int:
@@ -28,7 +61,15 @@ def main() -> int:
         queue_path = state_dir / 'queue.json'
         brief_path = temp_root / 'brief.json'
 
-        initial_state = {
+        write_json(queue_path, [])
+        write_json(brief_path, {
+            'title': 'Test initiative',
+            'objective': 'Prove guardrails.',
+            'desiredOutcomes': ['guard conflict'],
+            'definitionOfDone': ['reject conflicting enqueue'],
+        })
+
+        write_json(state_path, {
             'project': 'agentrunner',
             'running': False,
             'current': None,
@@ -38,44 +79,56 @@ def main() -> int:
                 'statePath': str(state_dir / 'initiatives/existing-initiative/state.json'),
             },
             'updatedAt': '2026-04-18T00:00:00+00:00',
-        }
-        write_json(state_path, initial_state)
-        write_json(queue_path, [])
-        write_json(brief_path, {
-            'title': 'Test initiative',
-            'objective': 'Prove guardrails.',
-            'desiredOutcomes': ['guard conflict'],
-            'definitionOfDone': ['reject conflicting enqueue'],
         })
+        assert_conflicting_enqueue_blocked(
+            repo_path=repo_path,
+            state_dir=state_dir,
+            initiative_id='new-initiative',
+            expected='state.json already points at active initiative existing-initiative; refusing to enqueue new-initiative',
+            brief_path=brief_path,
+        )
 
-        before_state = state_path.read_text()
-        cmd = [
-            sys.executable,
-            str(repo_path / 'agentrunner/scripts/enqueue_initiative.py'),
-            '--project', 'agentrunner',
-            '--initiative-id', 'new-initiative',
-            '--branch', 'feature/agentrunner/enqueue-cli',
-            '--base', 'master',
-            '--repo-path', str(repo_path),
-            '--state-dir', str(state_dir),
-            '--manager-brief-path', str(brief_path),
-        ]
-        proc = subprocess.run(cmd, capture_output=True, text=True)
-        if proc.returncode == 0:
-            raise SystemExit('expected conflicting enqueue to fail, but it succeeded')
-        combined = proc.stdout + proc.stderr
-        expected = 'state.json already points at active initiative existing-initiative; refusing to enqueue new-initiative'
-        if expected not in combined:
-            raise SystemExit(f'missing expected conflict message: {combined}')
-        after_state = state_path.read_text()
-        if after_state != before_state:
-            raise SystemExit('state.json changed despite preflight failure')
-        if (state_dir / 'initiatives/new-initiative').exists():
-            raise SystemExit('initiative scaffolding was created despite preflight failure')
-        if queue_path.read_text() != '[]\n':
-            raise SystemExit('queue.json changed despite preflight failure')
+        write_json(state_path, {
+            'project': 'agentrunner',
+            'running': False,
+            'current': None,
+            'initiative': {
+                'initiativeId': 'closed-initiative',
+                'phase': 'closure-merger',
+                'statePath': str(state_dir / 'initiatives/closed-initiative/state.json'),
+            },
+            'lastCompleted': {
+                'queueItemId': 'closed-initiative-merger',
+                'role': 'merger',
+                'queueItem': {
+                    'id': 'closed-initiative-merger',
+                    'project': 'agentrunner',
+                    'role': 'merger',
+                    'repo_path': str(repo_path),
+                    'branch': 'feature/agentrunner/clear-stale-initiative-pointer',
+                    'base': 'master',
+                    'initiative': {
+                        'initiativeId': 'closed-initiative',
+                        'phase': 'closure-merger',
+                        'branch': 'feature/agentrunner/clear-stale-initiative-pointer',
+                        'base': 'master',
+                    },
+                },
+                'resultPath': str(state_dir / 'results/closed-initiative-merger.json'),
+                'summary': 'Merge blocked.',
+                'status': 'blocked',
+            },
+            'updatedAt': '2026-04-19T00:00:00+00:00',
+        })
+        assert_conflicting_enqueue_blocked(
+            repo_path=repo_path,
+            state_dir=state_dir,
+            initiative_id='fresh-initiative',
+            expected='state.json already points at active initiative closed-initiative; refusing to enqueue fresh-initiative',
+            brief_path=brief_path,
+        )
 
-    print('ok: conflicting active initiative blocks enqueue without mutating state.json')
+    print('ok: active initiative pointers and non-success closure states still block conflicting enqueue attempts')
     return 0
 
 
