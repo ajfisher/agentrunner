@@ -189,6 +189,67 @@ def ensure_initiative_paths(state_dir: str, initiative: dict | None) -> dict:
     return paths
 
 
+def is_terminal_success_phase(phase: object) -> bool:
+    return phase in ('completed', 'closed')
+
+
+def terminal_success_initiative_id(state_dir: str, queue_item: dict | None) -> str | None:
+    if not isinstance(queue_item, dict):
+        return None
+    initiative = queue_item.get('initiative') if isinstance(queue_item.get('initiative'), dict) else None
+    if not initiative:
+        return None
+    initiative_id = initiative.get('initiativeId')
+    if not isinstance(initiative_id, str) or not initiative_id.strip():
+        return None
+    state_path = Path(state_dir) / 'initiatives' / initiative_id / 'state.json'
+    if not state_path.exists():
+        return None
+    initiative_state = load_json(state_path, {})
+    if is_terminal_success_phase(initiative_state.get('phase')):
+        return initiative_id
+    return None
+
+
+def drop_terminal_success_followups(state_dir: str, *, initiative_id: str, keep_ids: set[str] | None = None) -> list[str]:
+    keep = {str(x) for x in (keep_ids or set())}
+    queue_path = Path(state_dir) / 'queue.json'
+    queue = load_json(queue_path, [])
+    if not isinstance(queue, list) or not queue:
+        return []
+
+    dropped_ids: list[str] = []
+    for item in queue:
+        if not isinstance(item, dict):
+            continue
+        item_id = str(item.get('id') or '')
+        if item_id in keep:
+            continue
+        item_initiative = item.get('initiative') if isinstance(item.get('initiative'), dict) else None
+        if item_initiative and item_initiative.get('initiativeId') == initiative_id:
+            dropped_ids.append(item_id)
+
+    if not dropped_ids:
+        return []
+
+    events_path = Path(state_dir) / 'queue_events.ndjson'
+    if events_path.exists():
+        for item_id in dropped_ids:
+            append_queue_event(state_dir, 'CANCEL', id=item_id)
+    else:
+        queue = [
+            item for item in queue
+            if not (
+                isinstance(item, dict)
+                and str(item.get('id') or '') not in keep
+                and isinstance(item.get('initiative'), dict)
+                and item.get('initiative', {}).get('initiativeId') == initiative_id
+            )
+        ]
+        save_json(queue_path, queue)
+    return dropped_ids
+
+
 def build_message(queue_item: dict, result_path: str, handoff_path: str | None = None, *, state_dir: str | None = None) -> str:
     role_prompt = load_role_prompt(str(queue_item.get('role')))
     origin = queue_item.get('origin') if isinstance(queue_item.get('origin'), dict) else {}
@@ -622,6 +683,11 @@ def poll_completion(state_dir: str, state: dict) -> bool:
 
     status = str(result.get('status', 'ok'))
     finish_current_run(state_dir, state, cur=cur, status=status, result=result, role=role, qid=qid)
+
+    terminal_initiative_id = terminal_success_initiative_id(state_dir, cur.get('queueItem'))
+    if terminal_initiative_id:
+        drop_terminal_success_followups(state_dir, initiative_id=terminal_initiative_id)
+        return True
 
     if handoff_obj is not None:
         review_findings_path = materialize_review_findings_artifact(
