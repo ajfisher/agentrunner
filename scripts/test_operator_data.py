@@ -27,6 +27,7 @@ from operator_data import (  # noqa: E402
     snapshot_status,
     snapshot_updated_at,
     snapshot_warnings,
+    resolve_operator_snapshot,
     write_status_artifact,
 )
 
@@ -288,3 +289,50 @@ def test_snapshot_accessors_cover_minimum_adapter_fields(state_dir: Path) -> Non
         'lastBranch': 'feature/agentrunner/operator-data-layer',
     }
     assert snapshot_updated_at(loaded) == artifact['updatedAt']
+
+
+def test_resolve_operator_snapshot_returns_structured_read_model_from_project(state_dir: Path, monkeypatch) -> None:
+    seed_runtime_truth(state_dir)
+    monkeypatch.setattr('operator_data.DEFAULT_PROJECTS_ROOT', state_dir.parent)
+
+    snapshot = resolve_operator_snapshot(
+        project=state_dir.name,
+        queue_preview=2,
+        tick_count=3,
+        rebuild_missing=True,
+        write_rebuild=False,
+        build_status_artifact=fixed_now_builder,
+    )
+
+    assert snapshot.state_dir == state_dir.resolve()
+    assert snapshot.artifact_path == operator_snapshot_path(state_dir.resolve())
+    assert snapshot.artifact is not None
+    assert snapshot.artifact['project'] == 'agentrunner'
+    assert snapshot.notes == (
+        'warning: operator status artifact missing at ' + str(operator_snapshot_path(state_dir.resolve())),
+        'info: rebuilt operator status from mechanics files because --rebuild-missing was set',
+    )
+
+
+def test_resolve_operator_snapshot_accepts_path_input_without_cli_formatting(state_dir: Path) -> None:
+    artifact = {
+        'contract': dict(OPERATOR_SNAPSHOT_CONTRACT),
+        'project': 'agentrunner',
+        'status': 'idle',
+        'current': None,
+        'queue': {'depth': 0, 'nextIds': [], 'preview': []},
+        'initiative': None,
+        'lastCompleted': None,
+        'warnings': [],
+        'reconciliation': {'decision': 'idle', 'summary': 'nothing running', 'reasons': []},
+        'updatedAt': '2026-04-19T12:00:00+00:00',
+        'resultHint': None,
+    }
+    write_json(operator_snapshot_path(state_dir), artifact)
+
+    snapshot = resolve_operator_snapshot(state_dir=state_dir)
+
+    assert snapshot.state_dir == state_dir.resolve()
+    assert snapshot.artifact_path == operator_snapshot_path(state_dir.resolve())
+    assert snapshot.artifact == artifact
+    assert snapshot.notes == ()

@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from .operator_data import CliUsageError, clip, infer_state_dir, load_operator_snapshot
+    from .operator_data import CliUsageError, clip, infer_state_dir, load_operator_snapshot, resolve_operator_snapshot
     from .status_artifact import (
         build_status_artifact,
         format_current_line,
@@ -29,7 +29,7 @@ try:
         write_status_artifact,
     )
 except ImportError:  # pragma: no cover - script-mode fallback
-    from operator_data import CliUsageError, clip, infer_state_dir, load_operator_snapshot
+    from operator_data import CliUsageError, clip, infer_state_dir, load_operator_snapshot, resolve_operator_snapshot
     from status_artifact import (
         build_status_artifact,
         format_current_line,
@@ -173,8 +173,8 @@ def main(argv: list[str] | None = None) -> int:
         state_dir = infer_state_dir(state_dir=args.state_dir, project=args.project)
         if args.command == "watch":
             return watch_loop(args, state_dir)
-        artifact, notes = load_operator_snapshot(
-            state_dir,
+        snapshot = resolve_operator_snapshot(
+            state_dir=state_dir,
             queue_preview=args.queue,
             tick_count=args.ticks,
             rebuild_missing=args.rebuild_missing,
@@ -183,6 +183,8 @@ def main(argv: list[str] | None = None) -> int:
             build_status_artifact=build_status_artifact,
             write_status_artifact=write_status_artifact,
         )
+        artifact = snapshot.artifact
+        notes = list(snapshot.notes)
         if artifact is None:
             print_lines(notes)
             return 1

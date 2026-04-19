@@ -11,6 +11,7 @@ an explicit caller action.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -37,6 +38,16 @@ class CliUsageError(RuntimeError):
 
 BuildArtifact = Callable[..., dict[str, Any]]
 WriteArtifact = Callable[[Path, dict[str, Any]], Path]
+
+
+@dataclass(frozen=True)
+class OperatorSnapshotRead:
+    """Resolved operator snapshot plus bounded rebuild notes for non-CLI callers."""
+
+    state_dir: Path
+    artifact_path: Path
+    artifact: dict[str, Any] | None
+    notes: tuple[str, ...]
 
 
 def snapshot_contract(artifact: dict[str, Any]) -> dict[str, Any]:
@@ -621,3 +632,43 @@ def load_operator_snapshot(
             notes.append("hint: rerun with --rebuild-missing for a bounded manual rebuild")
 
     return artifact, notes
+
+
+def resolve_operator_snapshot(
+    *,
+    state_dir: str | Path | None = None,
+    project: str | None = None,
+    queue_preview: int = 3,
+    tick_count: int = 3,
+    rebuild_missing: bool = False,
+    rebuild_malformed: bool = False,
+    write_rebuild: bool = False,
+    build_status_artifact: BuildArtifact | None = None,
+    write_status_artifact: WriteArtifact | None = None,
+) -> OperatorSnapshotRead:
+    """Resolve a project/state-dir and load the canonical operator snapshot.
+
+    This is the smallest read-model seam for non-CLI consumers: it resolves the
+    runtime location, returns the canonical artifact path, and preserves bounded
+    rebuild notes as structured data instead of human-formatted CLI output.
+    """
+    resolved_state_dir = infer_state_dir(
+        state_dir=str(state_dir) if state_dir is not None else None,
+        project=project,
+    )
+    artifact, notes = load_operator_snapshot(
+        resolved_state_dir,
+        queue_preview=queue_preview,
+        tick_count=tick_count,
+        rebuild_missing=rebuild_missing,
+        rebuild_malformed=rebuild_malformed,
+        write_rebuild=write_rebuild,
+        build_status_artifact=build_status_artifact,
+        write_status_artifact=write_status_artifact,
+    )
+    return OperatorSnapshotRead(
+        state_dir=resolved_state_dir,
+        artifact_path=operator_snapshot_path(resolved_state_dir),
+        artifact=artifact,
+        notes=tuple(notes),
+    )
