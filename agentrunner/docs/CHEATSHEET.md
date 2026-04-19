@@ -2,26 +2,30 @@
 
 ## Canonical MVP command map
 
+Preferred operator path:
+
 ```bash
 cd /home/openclaw/projects/agentrunner
 python3 -m agentrunner <command> [...args]
 ```
 
-Canonical top-level commands:
-- `agentrunner brief`
-- `agentrunner status`
-- `agentrunner queue`
-- `agentrunner initiatives`
-- `agentrunner watch`
+Implemented routed commands today:
+- `python3 -m agentrunner brief`
+- `python3 -m agentrunner status`
+- `python3 -m agentrunner queue`
+- `python3 -m agentrunner initiatives`
+- `python3 -m agentrunner watch`
+
+Compatibility note:
+- the old script entrypoints still work and remain the implementation surface underneath the router
+- a bare `agentrunner ...` console-script shim may be available in some packaged installs later, but checkout-based/operator docs should assume `python3 -m agentrunner ...` unless explicitly packaged
 
 Delegation contract:
 - `brief` is a thin adapter over `agentrunner/scripts/enqueue_initiative.py`
 - `status`, `queue`, `initiatives`, and `watch` are thin adapters over `agentrunner/scripts/operator_cli.py`
 - arguments after the top-level command are passed through unchanged
-- if you prefer a visual separator, `agentrunner <command> -- ...` is accepted; the router strips the lone separator before delegation
+- if you prefer a visual separator, `python3 -m agentrunner <command> -- ...` is accepted; the router strips the lone separator before delegation
 - exit codes come from the underlying script, not a rewritten router policy
-
-The older script entrypoints still work and remain the implementation surface underneath the router.
 
 ## Base command
 
@@ -40,12 +44,27 @@ Use it in one of two ways:
 
 ### Status by project
 
+Preferred:
+
 ```bash
 python3 -m agentrunner status --project agentrunner
+```
+
+Compatibility / direct script form:
+
+```bash
 python3 agentrunner/scripts/operator_cli.py status --project agentrunner
 ```
 
 ### Status by explicit state dir
+
+Preferred:
+
+```bash
+python3 -m agentrunner status --state-dir /home/openclaw/.agentrunner/projects/agentrunner
+```
+
+Compatibility / direct script form:
 
 ```bash
 python3 agentrunner/scripts/operator_cli.py status --state-dir /home/openclaw/.agentrunner/projects/agentrunner
@@ -61,14 +80,22 @@ Use this for:
 
 ## Queue view
 
+Preferred:
+
 ```bash
 python3 -m agentrunner queue --project agentrunner
+```
+
+Compatibility / direct script form:
+
+```bash
 python3 agentrunner/scripts/operator_cli.py queue --project agentrunner
 ```
 
-or
+or by explicit state dir:
 
 ```bash
+python3 -m agentrunner queue --state-dir /home/openclaw/.agentrunner/projects/agentrunner
 python3 agentrunner/scripts/operator_cli.py queue --state-dir /home/openclaw/.agentrunner/projects/agentrunner
 ```
 
@@ -81,8 +108,15 @@ Use this for:
 
 ## Initiative view
 
+Preferred:
+
 ```bash
 python3 -m agentrunner initiatives --project agentrunner
+```
+
+Compatibility / direct script form:
+
+```bash
 python3 agentrunner/scripts/operator_cli.py initiatives --project agentrunner
 ```
 
@@ -97,15 +131,29 @@ Use this for:
 
 ### Continuous-ish watch
 
+Preferred:
+
 ```bash
 python3 -m agentrunner watch --project agentrunner
+```
+
+Compatibility / direct script form:
+
+```bash
 python3 agentrunner/scripts/operator_cli.py watch --project agentrunner
 ```
 
 ### Bounded watch
 
+Preferred:
+
 ```bash
 python3 -m agentrunner watch --project agentrunner --count 5 --interval 1
+```
+
+Compatibility / direct script form:
+
+```bash
 python3 agentrunner/scripts/operator_cli.py watch --project agentrunner --count 5 --interval 1
 ```
 
@@ -114,7 +162,7 @@ Use this for:
 - checking whether the poller is moving things
 - light live monitoring without tailing raw files
 
-Handy version:
+Handy direct-script variant:
 
 ```bash
 python3 agentrunner/scripts/operator_cli.py watch --project agentrunner --count 10 --interval 2
@@ -124,7 +172,7 @@ python3 agentrunner/scripts/operator_cli.py watch --project agentrunner --count 
 
 ## Related tools
 
-### Recent event history
+### Recent event history (`tick_tailer.py`)
 
 If you want the timeline rather than the current state:
 
@@ -144,19 +192,27 @@ Use this for:
 - did merger fire?
 - was a dev follow-up inserted?
 
+Important distinction:
+- `python3 -m agentrunner status|queue|initiatives|watch` = top-level operator views
+- `tick_tailer.py` = validated recent-history helper
+- `tick_tailer.py` does **not** replace the current-state artifact/views
+
 ---
 
-### Status helper
+### Status rebuild/debug helper (`status.py`)
 
 ```bash
 python3 agentrunner/scripts/status.py --state-dir /home/openclaw/.agentrunner/projects/agentrunner
 ```
 
-This is the thinner status helper sitting over the canonical status artifact.
+Use this when you explicitly want the lower-level rebuild/debug path sitting under the canonical status artifact.
+It is **not** the preferred day-to-day operator command.
 
 ---
 
 ### Enqueue a new initiative
+
+Preferred:
 
 ```bash
 python3 -m agentrunner brief \
@@ -166,7 +222,11 @@ python3 -m agentrunner brief \
   --base master \
   --manager-brief-path /path/to/brief.json \
   --poll-after-enqueue
+```
 
+Compatibility / lower-level equivalent:
+
+```bash
 python3 agentrunner/scripts/enqueue_initiative.py \
   --project agentrunner \
   --initiative-id my-new-thing \
@@ -185,24 +245,27 @@ Use this for:
 ## Mental model
 
 Use:
-- `operator_cli.py status` → current state
-- `operator_cli.py queue` → upcoming work
-- `operator_cli.py initiatives` → phase/initiative context
-- `operator_cli.py watch` → repeated snapshots
-- `tick_tailer.py` → recent history / event stream
+- `python3 -m agentrunner status` → current state
+- `python3 -m agentrunner queue` → upcoming work
+- `python3 -m agentrunner initiatives` → phase/initiative context
+- `python3 -m agentrunner watch` → repeated snapshots
+- `python3 agentrunner/scripts/status.py` → rebuild/debug helper
+- `python3 agentrunner/scripts/tick_tailer.py` → recent history / event stream
 
 So:
-- **status = present**
+- **top-level routed CLI = normal operator path**
+- **status.py = rebuild/debug helper**
 - **tick tailer = recent past**
 
 ---
 
 ## Current limitation
 
-The canonical command tree now exists at the Python-module level:
+The routed command tree exists today at the Python-module level:
 
 ```bash
 python3 -m agentrunner status
 ```
 
-A packaged console-script shim named exactly `agentrunner` can be added later, but the routing contract is already fixed and should match the module form above.
+Do not assume a bare `agentrunner` console script exists unless the environment explicitly installed one.
+If/when that shim is packaged everywhere, it should match the same routing contract documented here.

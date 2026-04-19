@@ -58,19 +58,23 @@ Run invoker every minute:
 
 ## Canonical MVP CLI surface
 
-The MVP command tree is now standardized around a thin top-level router:
-
-- `agentrunner brief`
-- `agentrunner status`
-- `agentrunner queue`
-- `agentrunner initiatives`
-- `agentrunner watch`
-
-Current invocation during development:
+The preferred operator path is the routed top-level CLI:
 
 ```bash
-python3 -m agentrunner status --project picv_spike
+python3 -m agentrunner <command> [...args]
 ```
+
+Implemented commands today:
+- `python3 -m agentrunner brief`
+- `python3 -m agentrunner status`
+- `python3 -m agentrunner queue`
+- `python3 -m agentrunner initiatives`
+- `python3 -m agentrunner watch`
+
+Important limitation today:
+- the routing contract is real and implemented now
+- a bare `agentrunner ...` console-script shim may exist in some installs later, but should **not** be assumed in checkout-based/operator docs yet
+- when in doubt, use `python3 -m agentrunner ...` as the canonical command form
 
 Routing contract:
 - `brief` delegates to `agentrunner/scripts/enqueue_initiative.py` via `enqueue_initiative.main(argv)`
@@ -82,28 +86,34 @@ This keeps the top-level CLI canonical without duplicating mechanics logic in a 
 
 ## Operator status CLI
 
-Use the canonical operator CLI entrypoint for read-only status/queue/initiative views.
-It prefers `operator_status.json` and only falls back to a bounded manual rebuild when you ask for it explicitly, so operators do not have to reconstruct state by hand from `state.json`, `queue.json`, `ticks.ndjson`, and `results/*.json` during the normal happy path.
+Use the routed top-level CLI first for read-only operator views. The lower-level scripts remain supported as compatibility paths and implementation surfaces underneath the router.
+
+The status surface prefers `operator_status.json` and only falls back to a bounded manual rebuild when you ask for it explicitly, so operators do not have to reconstruct state by hand from `state.json`, `queue.json`, `ticks.ndjson`, and `results/*.json` during the normal happy path.
 
 ```bash
-python3 agentrunner/scripts/operator_cli.py status --project picv_spike
 python3 -m agentrunner status --project picv_spike
+python3 agentrunner/scripts/operator_cli.py status --project picv_spike   # compatibility / direct script form
 ```
 
-Useful variants:
-- queue preview: `python3 agentrunner/scripts/operator_cli.py queue --project picv_spike`
-- initiative summary: `python3 agentrunner/scripts/operator_cli.py initiatives --project picv_spike`
+Useful routed variants:
+- queue preview: `python3 -m agentrunner queue --project picv_spike`
+- initiative summary: `python3 -m agentrunner initiatives --project picv_spike`
+- watch mode: `python3 -m agentrunner watch --project picv_spike --interval 5`
+
+Useful compatibility/debug variants:
+- direct script path: `python3 agentrunner/scripts/operator_cli.py queue --project picv_spike`
 - bounded manual rebuild when the artifact is missing: `python3 agentrunner/scripts/operator_cli.py status --project picv_spike --rebuild-missing --write-rebuild`
-- watch mode: `python3 agentrunner/scripts/operator_cli.py watch --project picv_spike --interval 5`
 
 How the operator surfaces fit together:
-- `operator_cli.py` is the canonical read-only operator entrypoint for present-tense status/queue/initiative views.
-- `operator_status.json` is the blessed derivative artifact that keeps those views compact and machine-readable.
+- `python3 -m agentrunner status|queue|initiatives|watch` is the preferred operator entrypoint.
+- `operator_cli.py` is the lower-level compatibility implementation surface underneath that router.
+- `operator_status.json` is the blessed derivative artifact that keeps current-state views compact and machine-readable.
 - `status.py` is the explicit rebuild/debug helper when you intentionally want to regenerate the artifact from mechanics files.
 - `tick_tailer.py` is the recent-history companion for "what just happened?", not a replacement for the status artifact.
 
 Rule of thumb:
-- reach for `python3 agentrunner/scripts/operator_cli.py status|queue|initiatives --project <project>` first
+- reach for `python3 -m agentrunner status|queue|initiatives|watch --project <project>` first
+- use `python3 agentrunner/scripts/operator_cli.py ...` when you need the direct compatibility path or are debugging the router/delegation layer
 - use `status.py` only for recovery/debugging or when you intentionally want to refresh `operator_status.json`
 - use `tick_tailer.py` when you want a compact validated event timeline instead of the current snapshot
 
@@ -115,8 +125,9 @@ For a compact recent-history view of tick activity, use:
 python3 agentrunner/scripts/tick_tailer.py --project agentrunner
 ```
 
-This helper is intentionally complementary to `status.py`:
-- `status.py` answers the present-tense operator question: what is running, queued, or blocked right now?
+This helper is intentionally complementary to the routed status command and to `status.py`:
+- `python3 -m agentrunner status` answers the present-tense operator question: what is running, queued, or blocked right now?
+- `status.py` is the explicit rebuild/debug path for regenerating the status artifact.
 - `tick_tailer.py` answers the recent-history question: what just happened over the last few validated ticks?
 
 Useful variants:
@@ -125,7 +136,18 @@ Useful variants:
 
 ## Initiative enqueue helper
 
-Use the stdlib-only enqueue helper to seed a new initiative kickoff safely:
+Use the routed top-level CLI for operator-facing initiative kickoff; keep the direct script path as a compatibility/lower-level option.
+
+```bash
+python3 -m agentrunner brief \
+  --project agentrunner \
+  --initiative-id agentrunner-enqueue-cli \
+  --branch feature/agentrunner/enqueue-cli \
+  --base master \
+  --manager-brief-path /path/to/brief.json
+```
+
+Compatibility / lower-level equivalent:
 
 ```bash
 python3 agentrunner/scripts/enqueue_initiative.py \
@@ -139,7 +161,7 @@ python3 agentrunner/scripts/enqueue_initiative.py \
 Example using inline JSON instead of a file:
 
 ```bash
-python3 agentrunner/scripts/enqueue_initiative.py \
+python3 -m agentrunner brief \
   --project agentrunner \
   --initiative-id docs-refresh \
   --branch feature/agentrunner/docs-refresh \
@@ -167,7 +189,7 @@ Guardrails before any writes occur:
 - normalizes the brief into `initiatives/<initiativeId>/brief.json` and enqueues the canonical Manager kickoff item only after preflight passes
 
 Important: `queue.json` is a **materialized view**, not an enqueue authority.
-Do **not** add items by editing `queue.json` directly. The authoritative enqueue path is the queue-event ledger via `enqueue_initiative.py` (or other ledger-writing helpers), after which mechanics rebuilds `queue.json` as a convenience view.
+Do **not** add items by editing `queue.json` directly. The authoritative enqueue path is the queue-event ledger via the routed `brief` command (or `enqueue_initiative.py` as the lower-level compatibility helper), after which mechanics rebuilds `queue.json` as a convenience view.
 
 Duplicate handling is intentionally conservative:
 - if the same initiative is already active, pending, or has initiative-local kickoff artifacts, the helper returns a `noop` summary instead of enqueueing a second kickoff
@@ -175,6 +197,6 @@ Duplicate handling is intentionally conservative:
 
 Lightweight proof / operator test recipe:
 1. Prepare a disposable project state dir under `~/.agentrunner/projects/<scratch-project>/`.
-2. Run `enqueue_initiative.py` once with a valid brief and confirm the summary reports `status: "ok"` plus `<initiativeId>-manager` as the kickoff item.
+2. Run `python3 -m agentrunner brief` once with a valid brief and confirm the summary reports `status: "ok"` plus `<initiativeId>-manager` as the kickoff item.
 3. Run the same command again with the same `initiativeId` and confirm the summary reports `status: "noop"` with an “already active/pending/exists” style message.
 4. Optionally run once with `--poll-after-enqueue` to confirm the helper also reports the reliability poll summary without requiring any direct `queue.json` edits.

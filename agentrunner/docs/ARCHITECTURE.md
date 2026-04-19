@@ -66,6 +66,25 @@ This reduces reliance on prose/history and gives Developer turns a deterministic
 
 See also: `agentrunner/docs/ARTIFACT_CONTRACTS.md`
 
+## Operator CLI surface
+
+Operator-facing docs should treat the routed top-level CLI as the preferred path:
+
+- `python3 -m agentrunner brief`
+- `python3 -m agentrunner status`
+- `python3 -m agentrunner queue`
+- `python3 -m agentrunner initiatives`
+- `python3 -m agentrunner watch`
+
+Those commands are thin routers over lower-level script implementations:
+- `brief` delegates to `agentrunner/scripts/enqueue_initiative.py`
+- `status|queue|initiatives|watch` delegate to `agentrunner/scripts/operator_cli.py`
+
+Compatibility and limitation notes:
+- checkout-based docs should assume `python3 -m agentrunner ...` as the real implemented operator command form today
+- a bare `agentrunner ...` console-script shim may be packaged in some environments later, but it is not the architectural baseline to assume everywhere yet
+- `status.py` and `tick_tailer.py` are intentionally lower-level rebuild/debug/history helpers, not alternate primary operator surfaces
+
 ## Operator-facing Discord summaries
 
 Human-visible Discord messages are **not** the source of truth.
