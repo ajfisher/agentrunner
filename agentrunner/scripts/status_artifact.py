@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-STALE_RUN_AFTER = timedelta(minutes=12)
+try:
+    from .reconciliation_policy import reconcile_runtime_state
+except ImportError:  # pragma: no cover - script-mode fallback
+    from reconciliation_policy import reconcile_runtime_state
 
 
 def iso_now() -> str:
@@ -288,42 +291,31 @@ def build_status_artifact(state_dir: Path, *, queue_preview: int = 3, tick_count
         else:
             warnings.append({"code": "malformed_queue_item", "severity": "warning", "summary": "Encountered malformed queue item", "details": None})
 
-    status = "active" if bool(state.get("running")) and current else "idle"
-    if current and current.get("startedAt"):
-        started = parse_iso(current.get("startedAt"))
-        if started is not None and (now - started) >= STALE_RUN_AFTER:
-            warnings.append({
-                "code": "stale_run",
-                "severity": "warning",
-                "summary": f"Current run has been active for {current.get('ageSeconds')}s without completion",
-                "details": current.get("queueItemId"),
-            })
-            status = "blocked"
-
-    if last_completed and str(last_completed.get("status") or "").lower() == "blocked":
-        warnings.append({
-            "code": "last_completed_blocked",
-            "severity": "warning",
-            "summary": "Most recent completed item ended blocked",
-            "details": last_completed.get("queueItemId"),
-        })
-        if status != "active":
-            status = "blocked"
-
-    state_updated = parse_iso(state.get("updatedAt"))
-    if state_updated is not None:
-        age = now - state_updated
-        if age >= STALE_RUN_AFTER and status == "idle" and len(queue) > 0:
-            warnings.append({
-                "code": "stale_status",
-                "severity": "info",
-                "summary": "Queue has pending work but runtime state has not been refreshed recently",
-                "details": f"ageSeconds={int(age.total_seconds())}",
-            })
+    reconciliation = reconcile_runtime_state(
+        now=now,
+        state=state,
+        queue=queue,
+        ticks=ticks,
+        current=current,
+        initiative=initiative,
+        last_completed=last_completed,
+    )
+    warnings.extend([
+        {
+            "code": reason.get("code"),
+            "severity": reason.get("severity"),
+            "summary": reason.get("summary"),
+            "details": reason.get("details"),
+            "source": reason.get("source"),
+            "precedence": reason.get("precedence"),
+        }
+        for reason in reconciliation.get("reasons", [])
+        if isinstance(reason, dict) and str(reason.get("severity") or "").lower() in {"warning", "error"}
+    ])
 
     artifact = {
         "project": state.get("project") or state_dir.name,
-        "status": status,
+        "status": reconciliation.get("decision"),
         "current": current,
         "queue": {
             "depth": len(queue),
@@ -333,6 +325,7 @@ def build_status_artifact(state_dir: Path, *, queue_preview: int = 3, tick_count
         "initiative": initiative,
         "lastCompleted": last_completed,
         "warnings": warnings,
+        "reconciliation": reconciliation,
         "updatedAt": iso_now(),
     }
 
@@ -462,6 +455,20 @@ def format_result_hint_line(artifact: dict[str, Any]) -> str:
     return f"result hint: {clip(result_hint_value, 120) if result_hint_value else '-'}"
 
 
+def format_reconciliation_line(artifact: dict[str, Any]) -> str:
+    reconciliation = artifact.get("reconciliation") if isinstance(artifact.get("reconciliation"), dict) else None
+    if not reconciliation:
+        return "reconciliation: -"
+    bits = [clip(reconciliation.get("decision") or "-", 24)]
+    summary = reconciliation.get("summary")
+    if summary:
+        bits.append(clip(summary, 120))
+    reasons = reconciliation.get("reasons") if isinstance(reconciliation.get("reasons"), list) else []
+    if reasons:
+        bits.append(f"reasons={len(reasons)}")
+    return f"reconciliation: {' | '.join(bits)}"
+
+
 def format_warning_summary_line(artifact: dict[str, Any]) -> str:
     warnings = artifact.get("warnings") if isinstance(artifact.get("warnings"), list) else []
     if not warnings:
@@ -491,6 +498,7 @@ def format_status_lines(artifact: dict[str, Any], *, queue_preview: int = 3) -> 
     runtime_line = format_runtime_line(artifact)
     if runtime_line:
         lines.append(runtime_line)
+    lines.append(format_reconciliation_line(artifact))
     lines.append(format_result_hint_line(artifact))
     lines.append(format_warning_summary_line(artifact))
     return lines

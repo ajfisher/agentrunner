@@ -14,7 +14,7 @@
   ],
   "properties": {
     "project": {"type": "string", "minLength": 1},
-    "status": {"type": "string", "enum": ["idle", "active", "blocked"]},
+    "status": {"type": "string", "enum": ["active", "blocked", "idle-clean", "idle-pending", "conflicted"]},
     "current": {
       "type": ["object", "null"],
       "properties": {
@@ -69,10 +69,62 @@
           "code": {"type": "string", "minLength": 1},
           "severity": {"type": "string", "enum": ["info", "warning", "error"]},
           "summary": {"type": "string", "minLength": 1},
-          "details": {"type": ["string", "null"]}
+          "details": {},
+          "source": {"type": ["string", "null"]},
+          "precedence": {"type": ["integer", "null"]}
         },
         "additionalProperties": true
       }
+    },
+    "reconciliation": {
+      "type": ["object", "null"],
+      "properties": {
+        "decision": {"type": "string", "enum": ["active", "blocked", "idle-clean", "idle-pending", "conflicted"]},
+        "summary": {"type": ["string", "null"]},
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["code", "source", "severity", "summary", "precedence"],
+            "properties": {
+              "code": {"type": "string", "minLength": 1},
+              "source": {"type": "string", "minLength": 1},
+              "severity": {"type": "string", "enum": ["info", "warning", "error"]},
+              "summary": {"type": "string", "minLength": 1},
+              "details": {},
+              "precedence": {"type": "integer", "minimum": 1}
+            },
+            "additionalProperties": true
+          }
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "present", "precedence", "freshness", "authority"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "present": {"type": "boolean"},
+              "precedence": {"type": "integer", "minimum": 1},
+              "freshness": {"type": "string", "minLength": 1},
+              "authority": {"type": "string", "minLength": 1},
+              "details": {}
+            },
+            "additionalProperties": true
+          }
+        },
+        "policy": {
+          "type": ["object", "null"],
+          "properties": {
+            "name": {"type": "string"},
+            "version": {"type": "integer", "minimum": 1},
+            "freshness": {"type": ["object", "null"]},
+            "precedenceOrder": {"type": ["array", "null"], "items": {"type": "string"}}
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
     },
     "updatedAt": {"type": "string", "description": "ISO-8601 timestamp"}
   },

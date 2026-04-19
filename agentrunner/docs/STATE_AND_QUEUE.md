@@ -55,12 +55,13 @@ Purpose:
 
 Minimum contract fields:
 - `project` — project id
-- `status` — overall status (`idle`, `active`, or `blocked`)
+- `status` — stable reconciled operator decision (`active`, `blocked`, `idle-clean`, `idle-pending`, or `conflicted`)
 - `current` — active work summary or `null`
 - `queue` — queue summary including at least `depth` and `nextIds`
 - `initiative` — initiative id + current phase summary when known
 - `lastCompleted` — most recent completed/blocked item summary when known
 - `warnings` — zero or more structured warning objects
+- `reconciliation` — explicit source/reason/preference breakdown for how the decision was derived
 - `updatedAt` — ISO-8601 timestamp for when the summary was refreshed
 
 Recommended `current` fields:
@@ -98,9 +99,21 @@ Each warning should be a compact object so future adapters can render it without
 A stale active run should appear as a warning with `code: "stale_run"` once the active item exceeds the mechanics stale-run timeout. This warning is derivative of runtime timestamps; it does not itself unlock or mutate the queue.
 
 Status semantics:
-- `active` — work is currently running and no blocking condition is known
-- `idle` — no work is currently running and no blocking condition is known
-- `blocked` — the latest operator-visible state indicates a blocking condition (for example the current/last run is stale or the latest completed item ended blocked)
+- `conflicted` — higher-precedence truth sources disagree or mechanics state is internally inconsistent (for example `running=true` without `current`, or the active item also appears in the queued backlog)
+- `blocked` — the latest operator-visible state indicates a blocking condition (for example the current run is stale or the latest completed item ended blocked)
+- `active` — runtime lock + active run details agree on a fresh in-flight item
+- `idle-pending` — nothing is actively running, but queued work remains
+- `idle-clean` — nothing is actively running and there is no queued work or blocking context visible
+
+`reconciliation` is the explicit policy payload behind `status`. It enumerates the candidate truth sources, their precedence/freshness metadata, and the ordered machine-readable reasons for the final decision.
+
+Current precedence order:
+1. integrity conflicts between mechanics sources
+2. stale active-runtime claims
+3. last completed blocked result
+4. fresh active-runtime claim
+5. queued backlog without active work
+6. idle-clean fallback
 
 Consumers should treat `operator_status.json` as the canonical operator-facing summary and treat raw files as mechanics truth for debugging, recovery, and rebuilds.
 

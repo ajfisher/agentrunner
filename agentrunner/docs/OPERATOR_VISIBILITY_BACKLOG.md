@@ -72,12 +72,13 @@ This should be the blessed machine-readable summary for operator-facing tools.
 
 ### Minimum fields
 - project id
-- global project status (`idle`, `active`, `blocked`)
+- global project status (`active`, `blocked`, `idle-clean`, `idle-pending`, `conflicted`)
 - current item summary
 - queue depth + next item ids
 - initiative id/phase if present
 - last completed item summary
 - warnings / stale-run flags
+- explicit reconciliation payload (sources + precedence + reasons)
 - updated timestamp
 
 ### Canonical warning semantics
