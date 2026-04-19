@@ -185,7 +185,7 @@ def maybe_advance(state_dir: str) -> bool:
     qid = last.get('queueItemId')
     role = last.get('role')
     queue_item = last.get('queueItem') or {}
-    if not qid or role not in ('manager', 'architect', 'developer', 'reviewer'):
+    if not qid or role not in ('manager', 'architect', 'developer', 'reviewer', 'merger'):
         return False
     if not isinstance(queue_item, dict):
         return False
