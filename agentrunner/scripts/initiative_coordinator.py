@@ -221,20 +221,27 @@ def maybe_finalize_successful_initiative(state_dir: str, *, state: dict, queue_i
     return True
 
 
-def merger_result_passback(result: dict) -> dict | None:
+def merger_result_blocker(result: dict) -> dict | None:
     if result.get('status') != 'blocked' or result.get('merged') is not False:
         return None
     blocker = result.get('mergeBlocker')
     if not isinstance(blocker, dict):
         return None
+    return blocker
+
+
+def merger_result_passback(result: dict) -> tuple[dict, dict] | tuple[None, None]:
+    blocker = merger_result_blocker(result)
+    if blocker is None:
+        return None, None
     if blocker.get('classification') != 'repairable' or blocker.get('kind') != 'non_fast_forward':
-        return None
+        return None, blocker
     passback = blocker.get('passback')
     if not isinstance(passback, dict):
-        return None
+        return None, blocker
     if passback.get('targetRole') != 'developer':
-        return None
-    return passback
+        return None, blocker
+    return passback, blocker
 
 
 def enqueue_merger_remediation_item(state_dir: str, *, state: dict, last: dict, queue_item: dict, initiative: dict, initiative_state_path: Path, initiative_state: dict, result: dict) -> bool:
@@ -243,7 +250,7 @@ def enqueue_merger_remediation_item(state_dir: str, *, state: dict, last: dict, 
     if initiative_state.get('phase') != 'closure-merger':
         return False
 
-    passback = merger_result_passback(result)
+    passback, blocker = merger_result_passback(result)
     if passback is None:
         return False
 
@@ -253,6 +260,21 @@ def enqueue_merger_remediation_item(state_dir: str, *, state: dict, last: dict, 
 
     remediation = initiative_state.get('remediation') if isinstance(initiative_state.get('remediation'), dict) else {}
     attempts = remediation.get('attempts') if isinstance(remediation.get('attempts'), list) else []
+    max_attempts = remediation.get('maxAttempts', 2)
+    if not isinstance(max_attempts, int) or max_attempts < 1:
+        max_attempts = 2
+    if len(attempts) >= max_attempts:
+        remediation['halted'] = {
+            'at': iso_now(),
+            'reason': 'budget_exhausted',
+            'detail': f'Closure remediation budget exhausted after {len(attempts)} attempts.',
+            'mergeBlocker': blocker,
+        }
+        remediation['activeAttempt'] = None
+        initiative_state['remediation'] = remediation
+        save_json(initiative_state_path, initiative_state)
+        return False
+
     attempt_number = len(attempts) + 1
     remediation_subtask_id = f'merger-remediation-{attempt_number}'
     remediation_item_id = f'{initiative_id}-{remediation_subtask_id}'
@@ -300,6 +322,9 @@ def enqueue_merger_remediation_item(state_dir: str, *, state: dict, last: dict, 
             'sourceResultPath': result_path,
             'mergeBlocker': result.get('mergeBlocker'),
             'closureRemediationAttempt': attempt_number,
+            'closureMergerQueueItemId': queue_item.get('id'),
+            'closureMergerResultPath': result_path,
+            'closureTargetPhase': 'closure-merger',
         },
     }
     append_queue_event(state_dir, 'INSERT_FRONT', item=followup_item)
@@ -316,11 +341,16 @@ def enqueue_merger_remediation_item(state_dir: str, *, state: dict, last: dict, 
         'requiresReReview': bool(passback.get('requiresReReview')),
         'requiresMergeRetry': bool(passback.get('requiresMergeRetry')),
         'mergeBlocker': result.get('mergeBlocker'),
+        'closurePhase': 'closure-merger',
+        'closureSourceQueueItemId': queue_item.get('id'),
+        'closureResultPath': result_path,
         'status': 'queued',
     })
     remediation['attempts'] = attempts
     remediation['lastAttempt'] = attempt_number
     remediation['activeAttempt'] = attempt_number
+    remediation['maxAttempts'] = max_attempts
+    remediation.pop('halted', None)
     initiative_state['remediation'] = remediation
     initiative_state['phase'] = 'execution'
     initiative_state['currentSubtaskId'] = remediation_subtask_id
@@ -329,6 +359,93 @@ def enqueue_merger_remediation_item(state_dir: str, *, state: dict, last: dict, 
     pending.insert(0, remediation_subtask_id)
     initiative_state['completedSubtasks'] = completed
     initiative_state['pendingSubtasks'] = pending
+    save_json(initiative_state_path, initiative_state)
+
+    state['initiative'] = {'initiativeId': initiative_id, 'phase': initiative_state.get('phase'), 'statePath': str(initiative_state_path)}
+    state['updatedAt'] = iso_now()
+    save_json(Path(state_dir) / 'state.json', state)
+    return True
+
+
+def active_remediation_attempt(initiative_state: dict) -> dict | None:
+    remediation = initiative_state.get('remediation') if isinstance(initiative_state.get('remediation'), dict) else None
+    if not remediation:
+        return None
+    active_attempt = remediation.get('activeAttempt')
+    if not isinstance(active_attempt, int):
+        return None
+    attempts = remediation.get('attempts') if isinstance(remediation.get('attempts'), list) else []
+    for attempt in attempts:
+        if isinstance(attempt, dict) and attempt.get('attempt') == active_attempt:
+            return attempt
+    return None
+
+
+def enqueue_closure_merger_retry(state_dir: str, *, state: dict, queue_item: dict, initiative: dict, initiative_state_path: Path, initiative_state: dict, remediation_attempt: dict) -> bool:
+    initiative_id = initiative.get('initiativeId')
+    if not isinstance(initiative_id, str) or not initiative_id.strip():
+        return False
+
+    branch = initiative_state.get('branch') or queue_item.get('branch')
+    base = initiative_state.get('base') or queue_item.get('base')
+    repo_path = queue_item.get('repo_path')
+    attempt_number = remediation_attempt.get('attempt')
+    if not isinstance(attempt_number, int) or attempt_number < 1:
+        return False
+
+    merger_item = {
+        'id': f'{initiative_id}-merger-retry-{attempt_number}',
+        'project': state.get('project'),
+        'role': 'merger',
+        'createdAt': iso_now(),
+        'repo_path': repo_path,
+        'branch': branch,
+        'base': base,
+        'goal': f'Closure merge retry {attempt_number} for initiative {initiative_id}. If the branch is again ready and fast-forward mergeable, merge {branch} into {base} using ff-only. Otherwise emit a blocked result and leave git state unchanged.',
+        'checks': [
+            f'git diff --stat {base}...{branch}',
+            'git status --short',
+            f'git merge-base --is-ancestor {base} {branch}',
+        ],
+        'constraints': {
+            'mergePolicy': 'ff-only',
+            'blockOnNonFF': True,
+            'approvedByReviewer': True,
+            'approvalQueueItemId': f"{queue_item.get('id')}-review",
+            'initiativePhase': 'closure-merger',
+            'closureRemediation': True,
+            'closureRemediationAttempt': attempt_number,
+            'closureSourceQueueItemId': remediation_attempt.get('closureSourceQueueItemId') or remediation_attempt.get('sourceQueueItemId'),
+            'closureSourceResultPath': remediation_attempt.get('closureResultPath') or remediation_attempt.get('sourceResultPath'),
+            'remediationReviewerQueueItemId': f"{queue_item.get('id')}-review",
+        },
+        'contextFiles': queue_item.get('contextFiles', []),
+        'initiative': {
+            'initiativeId': initiative_id,
+            'phase': 'closure-merger',
+            'branch': branch,
+            'base': base,
+        },
+        'origin': {
+            'requestedBy': queue_item.get('id'),
+            'closureRemediationAttempt': attempt_number,
+            'closureSourceQueueItemId': remediation_attempt.get('closureSourceQueueItemId') or remediation_attempt.get('sourceQueueItemId'),
+            'closureSourceResultPath': remediation_attempt.get('closureResultPath') or remediation_attempt.get('sourceResultPath'),
+            'remediationQueueItemId': queue_item.get('id'),
+        },
+    }
+    append_queue_event(state_dir, 'INSERT_FRONT', item=merger_item)
+
+    remediation_attempt['status'] = 'merge-retry-queued'
+    remediation_attempt['mergeRetryQueueItemId'] = merger_item['id']
+    remediation_attempt['reviewApprovedAt'] = iso_now()
+    remediation = initiative_state.get('remediation') if isinstance(initiative_state.get('remediation'), dict) else {}
+    remediation['activeAttempt'] = None
+    remediation['lastResolvedAttempt'] = attempt_number
+    remediation.pop('halted', None)
+    initiative_state['remediation'] = remediation
+    initiative_state['phase'] = 'closure-merger'
+    initiative_state['currentSubtaskId'] = None
     save_json(initiative_state_path, initiative_state)
 
     state['initiative'] = {'initiativeId': initiative_id, 'phase': initiative_state.get('phase'), 'statePath': str(initiative_state_path)}
@@ -384,6 +501,21 @@ def maybe_advance(state_dir: str) -> bool:
         result=result,
     ):
         return True
+
+    if queue_item.get('role') == 'merger' and initiative_state.get('phase') == 'closure-merger' and result.get('status') == 'blocked':
+        blocker = merger_result_blocker(result)
+        if blocker is not None:
+            remediation = initiative_state.get('remediation') if isinstance(initiative_state.get('remediation'), dict) else {}
+            remediation['halted'] = {
+                'at': iso_now(),
+                'reason': 'unsafe_blocker_change',
+                'detail': 'Closure remediation stopped because the merger blocker is no longer an in-scope repairable non-fast-forward passback.',
+                'mergeBlocker': blocker,
+            }
+            remediation['activeAttempt'] = None
+            initiative_state['remediation'] = remediation
+            save_json(initiative_state_path, initiative_state)
+            return False
 
     if result.get('status') != 'ok':
         return False
@@ -552,6 +684,25 @@ def maybe_advance(state_dir: str) -> bool:
         pending = [sid for sid in pending if sid != current_subtask_id]
         initiative_state['completedSubtasks'] = completed
         initiative_state['pendingSubtasks'] = pending
+
+        remediation_attempt = active_remediation_attempt(initiative_state)
+        if remediation_attempt and remediation_attempt.get('subtaskId') == current_subtask_id:
+            remediation_attempt['status'] = 'review-approved'
+            remediation_attempt['reviewApprovedAt'] = iso_now()
+            if remediation_attempt.get('requiresMergeRetry'):
+                if enqueue_closure_merger_retry(
+                    state_dir,
+                    state=state,
+                    queue_item=queue_item,
+                    initiative=initiative,
+                    initiative_state_path=initiative_state_path,
+                    initiative_state=initiative_state,
+                    remediation_attempt=remediation_attempt,
+                ):
+                    return True
+            remediation = initiative_state.get('remediation') if isinstance(initiative_state.get('remediation'), dict) else {}
+            remediation['activeAttempt'] = None
+            initiative_state['remediation'] = remediation
 
         if pending:
             next_id = pending[0]
