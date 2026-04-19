@@ -10,6 +10,21 @@ Files:
 - `results/<queueItemId>.json` – deterministic completion/result artifact written by workers
 - `operator_status.json` – canonical operator-facing status summary derived from the runtime truth files above
 
+## `state.json.initiative` pointer contract
+
+When present, `state.json.initiative` is the project's **active initiative pointer**.
+It is intentionally a compact pointer to the initiative operators should inspect right now, not a full archival record of every initiative outcome.
+
+Interpretation rules:
+- present pointer = this initiative is still the active context for execution, recovery, or operator attention
+- absent pointer = no initiative is currently active in main project state
+- richer per-initiative details should live under `initiatives/<initiativeId>/...`, with the main-state pointer linking or summarizing as needed
+
+Closure semantics:
+- after **successful closure** (for example an initiative completes and merge/closure succeeds), clear `state.json.initiative`
+- after **blocked or error closure**, mechanics may intentionally retain `state.json.initiative` so operators can still see which initiative needs recovery work
+- a retained pointer after blocked/error closure should be surfaced as blocked/stale context, not mistaken for healthy forward progress
+
 Queue events are the source of truth; `queue.json` is a convenience view.
 `operator_status.json` is also derivative: it is a blessed summary artifact for operator surfaces, not an authority for scheduling, enqueueing, or completion.
 

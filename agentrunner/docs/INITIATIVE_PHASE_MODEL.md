@@ -528,6 +528,20 @@ The phase model needs an additional initiative-level state record.
 This can live either inside `state.json` or as a separate `initiative.json`.
 For the MVP, embedding under `state.initiative` is probably simplest.
 
+### Pointer contract
+`state.initiative` should be treated as the **active initiative pointer**, not as the full durable initiative history.
+Its job is to answer, at a glance:
+- which initiative is currently active
+- which phase that initiative is in
+- where the richer initiative-local state lives
+
+That means the pointer should follow this closure contract:
+- **successful closure** (`merged` / cleanly finished initiative): clear `state.initiative` so operators can immediately tell there is no active initiative
+- **blocked or error closure**: `state.initiative` may be retained temporarily so recovery tooling and operator surfaces still point at the initiative that needs attention
+- retained pointer state after blocked/error closure should be interpreted as **recovery/context visibility**, not as proof that useful execution is still progressing
+
+Put differently: a present `state.initiative` means “this is the initiative operators should look at now”, while an absent `state.initiative` means “no initiative is currently active.”
+
 ### Proposed fields
 ```json
 {
@@ -864,6 +878,15 @@ This keeps the main project state from becoming bloated.
   }
 }
 ```
+
+### Pointer lifecycle note
+The main-state pointer is intentionally compact.
+It exists so `state.json` can quickly answer “what is the active initiative right now?” without copying the whole initiative-local state blob.
+
+Operationally:
+- clear this pointer after successful initiative closure so stale initiative context does not linger in the main project state
+- allow the pointer to remain after blocked/error closure when that helps recovery, debugging, or operator visibility
+- if the pointer remains after blocked/error closure, operator surfaces should describe that as blocked/stale initiative context rather than implying normal active execution
 
 ### Proposed initiative-local state
 ```json
