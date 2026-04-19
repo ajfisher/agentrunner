@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
-"""Shared read-only operator data contract helpers for AgentRunner.
+"""Shared read-only operator snapshot/data-layer helpers for AgentRunner.
 
-This module names the per-project operator snapshot contract and centralizes
-artifact loading / bounded rebuild policy so operator-facing surfaces do not
+This module names the per-project operator snapshot contract and centralizes the
+canonical artifact load/build/write path so operator-facing surfaces do not
 re-implement it ad hoc.
 
-It is intentionally stdlib-only. Loading helpers are read-only; they never
-mutate mechanics-owned state. Rebuild/write remains an explicit caller action.
+It is intentionally stdlib-only. Loading helpers are read-only; rebuild/write is
+an explicit caller action.
 """
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
+
+try:
+    from .reconciliation_policy import reconcile_runtime_state
+except ImportError:  # pragma: no cover - script-mode fallback
+    from reconciliation_policy import reconcile_runtime_state
 
 DEFAULT_PROJECTS_ROOT = Path.home() / ".agentrunner" / "projects"
 OPERATOR_STATUS_FILENAME = "operator_status.json"
@@ -33,7 +39,11 @@ BuildArtifact = Callable[..., dict[str, Any]]
 WriteArtifact = Callable[[Path, dict[str, Any]], Path]
 
 
-def clip(value: Any, limit: int = 120) -> str:
+def iso_now() -> str:
+    return datetime.now(timezone.utc).astimezone().isoformat()
+
+
+def clip(value: Any, limit: int = 160) -> str:
     if value is None:
         return "-"
     text = str(value).strip().replace("\n", " ")
@@ -43,6 +53,15 @@ def clip(value: Any, limit: int = 120) -> str:
     if len(text) <= limit:
         return text
     return text[: max(1, limit - 1)] + "…"
+
+
+def parse_iso(ts: Any) -> datetime | None:
+    if not isinstance(ts, str) or not ts.strip():
+        return None
+    try:
+        return datetime.fromisoformat(ts)
+    except Exception:
+        return None
 
 
 def parse_artifact(path: Path) -> dict[str, Any]:
@@ -64,6 +83,424 @@ def operator_snapshot_path(state_dir: Path) -> Path:
     return state_dir / OPERATOR_STATUS_FILENAME
 
 
+def git_output(repo_path: Path, *args: str) -> str | None:
+    import subprocess
+
+    try:
+        proc = subprocess.run(
+            ["git", *args],
+            cwd=repo_path,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except Exception:
+        return None
+    return proc.stdout.strip()
+
+
+def derive_repo_context(
+    state: dict[str, Any],
+    current: dict[str, Any] | None,
+    initiative: dict[str, Any] | None,
+    last_completed: dict[str, Any] | None,
+) -> tuple[str | None, str | None, str | None]:
+    candidates: list[dict[str, Any]] = []
+    raw_current = state.get("current") if isinstance(state.get("current"), dict) else None
+    queue_item = raw_current.get("queueItem") if isinstance(raw_current, dict) and isinstance(raw_current.get("queueItem"), dict) else None
+    if isinstance(queue_item, dict):
+        candidates.append(queue_item)
+    if isinstance(current, dict):
+        candidates.append(current)
+    if isinstance(last_completed, dict):
+        candidates.append(last_completed)
+    if isinstance(initiative, dict):
+        candidates.append(initiative)
+
+    repo_path = branch = base = None
+    for candidate in candidates:
+        if repo_path is None and isinstance(candidate.get("repo_path"), str) and candidate.get("repo_path").strip():
+            repo_path = candidate.get("repo_path")
+        if repo_path is None and isinstance(candidate.get("repoPath"), str) and candidate.get("repoPath").strip():
+            repo_path = candidate.get("repoPath")
+        if branch is None and isinstance(candidate.get("branch"), str) and candidate.get("branch").strip():
+            branch = candidate.get("branch")
+        if base is None and isinstance(candidate.get("base"), str) and candidate.get("base").strip():
+            base = candidate.get("base")
+    return repo_path, branch, base
+
+
+def inspect_live_repo(*, repo_path: str | None, expected_branch: str | None, base: str | None) -> dict[str, Any]:
+    if not repo_path:
+        return {
+            "present": False,
+            "freshness": "missing",
+            "details": {"repoPath": None, "reason": "no repo path available"},
+        }
+    repo = Path(repo_path)
+    if not repo.exists() or not repo.is_dir():
+        return {
+            "present": False,
+            "freshness": "missing",
+            "details": {"repoPath": repo_path, "reason": "repo path missing"},
+        }
+
+    head = git_output(repo, "rev-parse", "HEAD")
+    branch = git_output(repo, "rev-parse", "--abbrev-ref", "HEAD")
+    status_porcelain = git_output(repo, "status", "--short")
+    merge_base_ok = None
+    expected_branch_merged_into_base = None
+    if base and expected_branch:
+        import subprocess
+
+        proc = subprocess.run(["git", "merge-base", "--is-ancestor", base, expected_branch], cwd=repo, capture_output=True, text=True)
+        merge_base_ok = proc.returncode == 0 if proc.returncode in (0, 1) else None
+        merged_proc = subprocess.run(["git", "merge-base", "--is-ancestor", expected_branch, base], cwd=repo, capture_output=True, text=True)
+        expected_branch_merged_into_base = merged_proc.returncode == 0 if merged_proc.returncode in (0, 1) else None
+
+    present = head is not None and branch is not None
+    details = {
+        "repoPath": str(repo),
+        "inspectedAt": iso_now(),
+        "branch": branch,
+        "expectedBranch": expected_branch,
+        "branchMatchesExpected": bool(branch and expected_branch and branch == expected_branch) if expected_branch else True,
+        "base": base,
+        "baseIsAncestorOfExpectedBranch": merge_base_ok,
+        "expectedBranchIsAncestorOfBase": expected_branch_merged_into_base,
+        "branchIsBase": bool(branch and base and branch == base) if base else False,
+        "head": head,
+        "headPresent": bool(head),
+        "cleanWorktree": status_porcelain == "" if status_porcelain is not None else False,
+        "statusPorcelain": status_porcelain,
+    }
+    return {
+        "present": present,
+        "freshness": "fresh" if present else "missing",
+        "details": details,
+    }
+
+
+def load_json(path: Path, default: Any, *, warnings: list[dict[str, Any]] | None = None, code_prefix: str | None = None) -> Any:
+    if not path.exists():
+        return default
+    try:
+        return json.loads(path.read_text(encoding="utf-8", errors="ignore"))
+    except Exception as exc:
+        if warnings is not None and code_prefix:
+            warnings.append({
+                "code": f"malformed_{code_prefix}",
+                "severity": "warning",
+                "summary": f"Could not parse {path.name}",
+                "details": clip(exc, 200),
+            })
+        return default
+
+
+def tail_lines(path: Path, count: int) -> list[str]:
+    if count <= 0 or not path.exists():
+        return []
+    try:
+        return path.read_text(encoding="utf-8", errors="ignore").splitlines()[-count:]
+    except Exception:
+        return []
+
+
+def tail_ndjson(path: Path, count: int, *, warnings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if count <= 0:
+        return []
+    if not path.exists():
+        return []
+    out: list[dict[str, Any]] = []
+    malformed = 0
+    for raw in tail_lines(path, max(count * 4, count)):
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except Exception:
+            malformed += 1
+            continue
+        if isinstance(obj, dict):
+            out.append(obj)
+    if malformed:
+        warnings.append({
+            "code": "malformed_ticks",
+            "severity": "warning",
+            "summary": f"Skipped {malformed} malformed tick line(s)",
+            "details": str(path),
+        })
+    return out[-count:]
+
+
+def summarize_checks(checks: Any) -> str | None:
+    if not isinstance(checks, list) or not checks:
+        return None
+    total = len(checks)
+    ok = blocked = error = other = 0
+    for check in checks:
+        status = check.get("status") if isinstance(check, dict) else None
+        status = str(status or "").lower()
+        if status == "ok":
+            ok += 1
+        elif status == "blocked":
+            blocked += 1
+        elif status == "error":
+            error += 1
+        else:
+            other += 1
+    parts = [f"checks {ok}/{total} ok"]
+    if blocked:
+        parts.append(f"{blocked} blocked")
+    if error:
+        parts.append(f"{error} error")
+    if other:
+        parts.append(f"{other} other")
+    return ", ".join(parts)
+
+
+def result_hint(result: Any) -> str | None:
+    if not isinstance(result, dict):
+        return None
+    operator_summary = result.get("operatorSummary")
+    if isinstance(operator_summary, str) and operator_summary.strip():
+        lines = [ln.strip(" -") for ln in operator_summary.splitlines() if ln.strip()]
+        generic_prefixes = (
+            "status:",
+            "commit:",
+            "approved:",
+            "merged:",
+            "checks:",
+        )
+        informative = [line for line in lines[1:] if line and not line.lower().startswith(generic_prefixes)]
+        if informative:
+            return clip(informative[0], 160)
+        for line in lines[1:]:
+            if line:
+                return clip(line, 160)
+        if lines:
+            return clip(lines[0], 160)
+    summary = result.get("summary")
+    if summary:
+        return clip(summary, 160)
+    checks = summarize_checks(result.get("checks"))
+    if checks:
+        return clip(checks, 160)
+    return None
+
+
+def queue_item_summary(item: Any) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    return {
+        "queueItemId": item.get("id"),
+        "role": item.get("role"),
+        "branch": item.get("branch"),
+        "goal": clip(item.get("goal"), 160) if item.get("goal") else None,
+    }
+
+
+def current_summary(current: Any, *, now: datetime) -> dict[str, Any] | None:
+    if not isinstance(current, dict):
+        return None
+    started_at = current.get("startedAt") if isinstance(current.get("startedAt"), str) else None
+    age_seconds = None
+    started_dt = parse_iso(started_at)
+    if started_dt is not None:
+        age_seconds = max(0, int((now - started_dt).total_seconds()))
+    return {
+        "queueItemId": current.get("queueItemId"),
+        "role": current.get("role"),
+        "branch": current.get("queueItem", {}).get("branch") if isinstance(current.get("queueItem"), dict) else current.get("branch"),
+        "startedAt": started_at,
+        "ageSeconds": age_seconds,
+        "runId": current.get("runId"),
+        "sessionKey": current.get("sessionKey"),
+        "resultPath": current.get("resultPath"),
+    }
+
+
+def completed_summary(item: Any) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    queue_item = item.get("queueItem") if isinstance(item.get("queueItem"), dict) else {}
+    return {
+        "queueItemId": item.get("queueItemId"),
+        "role": item.get("role"),
+        "status": item.get("status"),
+        "summary": clip(item.get("summary"), 160) if item.get("summary") else None,
+        "endedAt": item.get("endedAt") or item.get("ts"),
+        "runId": item.get("runId"),
+        "sessionKey": item.get("sessionKey"),
+        "branch": queue_item.get("branch") if queue_item else item.get("branch"),
+        "base": queue_item.get("base") if queue_item else item.get("base"),
+        "repo_path": queue_item.get("repo_path") if queue_item else item.get("repo_path"),
+    }
+
+
+def initiative_summary(state_dir: Path, state: dict[str, Any], *, warnings: list[dict[str, Any]]) -> dict[str, Any] | None:
+    pointer = state.get("initiative") if isinstance(state.get("initiative"), dict) else None
+    current = state.get("current") if isinstance(state.get("current"), dict) else None
+    queue_item = current.get("queueItem") if isinstance(current, dict) and isinstance(current.get("queueItem"), dict) else None
+    queue_initiative = queue_item.get("initiative") if isinstance(queue_item, dict) and isinstance(queue_item.get("initiative"), dict) else None
+    seed = pointer or queue_initiative
+    if not isinstance(seed, dict):
+        return None
+
+    initiative_id = seed.get("initiativeId")
+    phase = seed.get("phase")
+    current_subtask_id = seed.get("subtaskId") or seed.get("currentSubtaskId")
+    branch = seed.get("branch")
+    base = seed.get("base")
+    state_path = seed.get("statePath")
+
+    loaded: dict[str, Any] | None = None
+    if isinstance(state_path, str) and state_path.strip():
+        loaded = load_json(Path(state_path), {}, warnings=warnings, code_prefix="initiative_state")
+    elif isinstance(initiative_id, str) and initiative_id.strip():
+        guess = state_dir / "initiatives" / initiative_id / "state.json"
+        if guess.exists():
+            loaded = load_json(guess, {}, warnings=warnings, code_prefix="initiative_state")
+            state_path = str(guess)
+    if isinstance(loaded, dict) and loaded:
+        initiative_id = loaded.get("initiativeId") or initiative_id
+        phase = loaded.get("phase") or phase
+        current_subtask_id = loaded.get("currentSubtaskId") or current_subtask_id
+        branch = loaded.get("branch") or branch
+        base = loaded.get("base") or base
+
+    return {
+        "initiativeId": initiative_id,
+        "phase": phase,
+        "currentSubtaskId": current_subtask_id,
+        "branch": branch,
+        "base": base,
+        "statePath": state_path,
+    }
+
+
+def derive_last_completed(state_dir: Path, state: dict[str, Any], ticks: list[dict[str, Any]], *, warnings: list[dict[str, Any]]) -> dict[str, Any] | None:
+    last_completed = state.get("lastCompleted") if isinstance(state.get("lastCompleted"), dict) else None
+    tick = ticks[-1] if ticks else None
+    if isinstance(tick, dict):
+        summary = completed_summary(tick) or {}
+        hint = result_hint(tick.get("result"))
+        if hint and not summary.get("summary"):
+            summary["summary"] = hint
+        return summary or None
+    summary = completed_summary(last_completed)
+    if not summary:
+        return None
+    qid = summary.get("queueItemId")
+    if qid:
+        result = load_json(state_dir / "results" / f"{qid}.json", None, warnings=warnings, code_prefix="result")
+        hint = result_hint(result)
+        if hint and not summary.get("summary"):
+            summary["summary"] = hint
+    return summary
+
+
+def build_status_artifact(state_dir: Path, *, queue_preview: int = 3, tick_count: int = 3, now: datetime | None = None) -> dict[str, Any]:
+    now = now or datetime.now(timezone.utc).astimezone()
+    warnings: list[dict[str, Any]] = []
+
+    state = load_json(state_dir / "state.json", {}, warnings=warnings, code_prefix="state")
+    queue_path = state_dir / "queue.json"
+    queue = load_json(queue_path, [], warnings=warnings, code_prefix="queue")
+    if not isinstance(state, dict):
+        warnings.append({"code": "invalid_state_shape", "severity": "warning", "summary": "state.json was not an object", "details": None})
+        state = {}
+    if not isinstance(queue, list):
+        warnings.append({"code": "invalid_queue_shape", "severity": "warning", "summary": "queue.json was not a list", "details": None})
+        queue = []
+    elif not queue_path.exists():
+        warnings.append({"code": "missing_queue", "severity": "info", "summary": "queue.json missing; treating queue as empty", "details": None})
+
+    ticks = tail_ndjson(state_dir / "ticks.ndjson", max(1, tick_count), warnings=warnings)
+    current = current_summary(state.get("current"), now=now)
+    initiative = initiative_summary(state_dir, state, warnings=warnings)
+    last_completed = derive_last_completed(state_dir, state, ticks, warnings=warnings)
+    repo_path, repo_branch, repo_base = derive_repo_context(state, current, initiative, last_completed)
+    live_repo = inspect_live_repo(repo_path=repo_path, expected_branch=repo_branch, base=repo_base)
+
+    queue_preview_items = []
+    for item in queue[: max(0, queue_preview)]:
+        summary = queue_item_summary(item)
+        if summary:
+            queue_preview_items.append(summary)
+        else:
+            warnings.append({"code": "malformed_queue_item", "severity": "warning", "summary": "Encountered malformed queue item", "details": None})
+
+    reconciliation = reconcile_runtime_state(
+        now=now,
+        state=state,
+        queue=queue,
+        ticks=ticks,
+        current=current,
+        initiative=initiative,
+        last_completed=last_completed,
+        live_repo=live_repo,
+    )
+    warnings.extend([
+        {
+            "code": reason.get("code"),
+            "severity": reason.get("severity"),
+            "summary": reason.get("summary"),
+            "details": reason.get("details"),
+            "source": reason.get("source"),
+            "precedence": reason.get("precedence"),
+        }
+        for reason in reconciliation.get("reasons", [])
+        if isinstance(reason, dict) and str(reason.get("severity") or "").lower() in {"warning", "error"}
+    ])
+
+    artifact = {
+        "contract": dict(OPERATOR_SNAPSHOT_CONTRACT),
+        "project": state.get("project") or state_dir.name,
+        "status": reconciliation.get("decision"),
+        "current": current,
+        "queue": {
+            "depth": len(queue),
+            "nextIds": [str(item.get("id")) for item in queue if isinstance(item, dict) and item.get("id")][: max(0, queue_preview)],
+            "preview": queue_preview_items,
+        },
+        "initiative": initiative,
+        "lastCompleted": last_completed,
+        "warnings": warnings,
+        "reconciliation": reconciliation,
+        "updatedAt": iso_now(),
+    }
+
+    if ticks:
+        artifact["recentTicks"] = ticks
+        artifact["resultHint"] = result_hint((ticks[-1] or {}).get("result"))
+    elif last_completed and last_completed.get("queueItemId"):
+        qid = last_completed["queueItemId"]
+        result = load_json(state_dir / "results" / f"{qid}.json", None, warnings=warnings, code_prefix="result")
+        artifact["resultHint"] = result_hint(result)
+    else:
+        artifact["resultHint"] = None
+
+    runtime = state.get("runtime") if isinstance(state.get("runtime"), dict) else None
+    if runtime:
+        artifact["runtime"] = {
+            "extraDevTurnsUsed": runtime.get("extraDevTurnsUsed"),
+            "lastBranch": runtime.get("lastBranch"),
+        }
+
+    return artifact
+
+
+def write_status_artifact(state_dir: Path, artifact: dict[str, Any]) -> Path:
+    path = operator_snapshot_path(state_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(artifact, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    tmp.replace(path)
+    return path
+
+
 def load_operator_snapshot(
     state_dir: Path,
     *,
@@ -72,8 +509,8 @@ def load_operator_snapshot(
     rebuild_missing: bool,
     rebuild_malformed: bool,
     write_rebuild: bool,
-    build_status_artifact: BuildArtifact,
-    write_status_artifact: WriteArtifact,
+    build_status_artifact: BuildArtifact | None = None,
+    write_status_artifact: WriteArtifact | None = None,
 ) -> tuple[dict[str, Any] | None, list[str]]:
     """Load the canonical operator snapshot, with explicit bounded rebuild fallback.
 
@@ -83,6 +520,8 @@ def load_operator_snapshot(
     notes: list[str] = []
     artifact_path = operator_snapshot_path(state_dir)
     artifact: dict[str, Any] | None = None
+    build_fn = build_status_artifact or globals()["build_status_artifact"]
+    write_fn = write_status_artifact or globals()["write_status_artifact"]
 
     if artifact_path.exists():
         try:
@@ -90,20 +529,20 @@ def load_operator_snapshot(
         except Exception as exc:
             notes.append(f"warning: {OPERATOR_STATUS_FILENAME} is malformed: {clip(exc, 160)}")
             if rebuild_malformed:
-                artifact = build_status_artifact(state_dir, queue_preview=queue_preview, tick_count=tick_count)
+                artifact = build_fn(state_dir, queue_preview=queue_preview, tick_count=tick_count)
                 notes.append("info: rebuilt operator snapshot from mechanics files because --rebuild-malformed was set")
                 if write_rebuild:
-                    write_status_artifact(state_dir, artifact)
+                    write_fn(state_dir, artifact)
                     notes.append(f"info: refreshed {artifact_path}")
             else:
                 notes.append("hint: rerun with --rebuild-malformed to use the bounded manual fallback")
     else:
         notes.append(f"warning: operator snapshot missing at {artifact_path}")
         if rebuild_missing:
-            artifact = build_status_artifact(state_dir, queue_preview=queue_preview, tick_count=tick_count)
+            artifact = build_fn(state_dir, queue_preview=queue_preview, tick_count=tick_count)
             notes.append("info: rebuilt operator snapshot from mechanics files because --rebuild-missing was set")
             if write_rebuild:
-                write_status_artifact(state_dir, artifact)
+                write_fn(state_dir, artifact)
                 notes.append(f"info: wrote {artifact_path}")
         else:
             notes.append("hint: rerun with --rebuild-missing for a bounded manual rebuild")
