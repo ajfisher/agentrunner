@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Explicit rebuild/debug helper for the canonical operator status artifact.
+"""Explicit rebuild/debug helper for the canonical operator snapshot artifact.
 
-For normal operator reads, prefer ``operator_cli.py`` which consumes
-``operator_status.json`` first. This script remains the manual rebuild path:
-run with ``--write`` to refresh ``operator_status.json`` on demand for
-recovery/debugging.
+For normal operator reads, prefer ``operator_cli.py`` which consumes the shared
+operator-data read model backed by ``operator_status.json`` first. This script
+remains the manual rebuild path: run with ``--write`` to refresh
+``operator_status.json`` on demand for recovery/debugging.
 """
 from __future__ import annotations
 

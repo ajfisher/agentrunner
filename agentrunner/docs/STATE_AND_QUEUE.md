@@ -35,7 +35,7 @@ For a quick read-only operator snapshot across these files, use:
 This is the canonical operator CLI entrypoint. It should summarize active/idle state, a short queue view, the active initiative phase, the last completed item, and warning/result hints by consuming `operator_status.json` first.
 
 Relationship between the operator helpers:
-- `operator_cli.py` = default operator surface for readable present-tense status/queue/initiative views
+- `operator_cli.py` = default operator surface for readable present-tense status/queue/initiative views, now consuming named snapshot accessors from `operator_data.py` rather than peeking through the raw artifact dict ad hoc
 - `operator_status.json` = blessed derivative artifact consumed by operator surfaces first
 - `status.py` = explicit rebuild/debug helper for refreshing the artifact from mechanics truth when an operator asks for it
 - `tick_tailer.py` = recent-history companion for validated tick activity, not the default current-status path

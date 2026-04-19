@@ -14,14 +14,44 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from .operator_data import build_status_artifact, clip, write_status_artifact
+    from .operator_data import (
+        build_status_artifact,
+        clip,
+        snapshot_current,
+        snapshot_initiative,
+        snapshot_last_completed,
+        snapshot_queue,
+        snapshot_queue_preview,
+        snapshot_reconciliation,
+        snapshot_result_hint,
+        snapshot_runtime,
+        snapshot_status,
+        snapshot_updated_at,
+        snapshot_warnings,
+        write_status_artifact,
+    )
 except ImportError:  # pragma: no cover - script-mode fallback
-    from operator_data import build_status_artifact, clip, write_status_artifact
+    from operator_data import (
+        build_status_artifact,
+        clip,
+        snapshot_current,
+        snapshot_initiative,
+        snapshot_last_completed,
+        snapshot_queue,
+        snapshot_queue_preview,
+        snapshot_reconciliation,
+        snapshot_result_hint,
+        snapshot_runtime,
+        snapshot_status,
+        snapshot_updated_at,
+        snapshot_warnings,
+        write_status_artifact,
+    )
 
 
 def format_current_line(artifact: dict[str, Any]) -> str:
-    current = artifact.get("current") if isinstance(artifact.get("current"), dict) else None
-    status = str(artifact.get("status") or "idle").upper()
+    current = snapshot_current(artifact)
+    status = str(snapshot_status(artifact) or "idle").upper()
     if current:
         bits = [
             status,
@@ -37,7 +67,7 @@ def format_current_line(artifact: dict[str, Any]) -> str:
 
 
 def format_queue_summary_lines(artifact: dict[str, Any], *, queue_preview: int = 3, include_items: bool = True) -> list[str]:
-    queue = artifact.get("queue") if isinstance(artifact.get("queue"), dict) else {}
+    queue = snapshot_queue(artifact)
     depth = int(queue.get("depth") or 0)
     next_ids = queue.get("nextIds") if isinstance(queue.get("nextIds"), list) else []
     bits = [f"{depth} item(s)"]
@@ -46,9 +76,9 @@ def format_queue_summary_lines(artifact: dict[str, Any], *, queue_preview: int =
     lines = [f"queue: {' | '.join(bits)}"]
     if not include_items:
         return lines
-    preview = queue.get("preview") if isinstance(queue.get("preview"), list) else []
+    preview = snapshot_queue_preview(artifact, queue_preview=queue_preview)
     if preview:
-        for idx, item in enumerate(preview[: max(0, queue_preview)], start=1):
+        for idx, item in enumerate(preview, start=1):
             if not isinstance(item, dict):
                 continue
             bits = [clip(item.get("queueItemId") or "?", 40), clip(item.get("role") or "?", 16)]
@@ -57,7 +87,7 @@ def format_queue_summary_lines(artifact: dict[str, Any], *, queue_preview: int =
             if item.get("goal"):
                 bits.append(clip(item.get("goal"), 80))
             lines.append(f"  {idx}. {' | '.join(bits)}")
-        remaining = depth - len(preview[: max(0, queue_preview)])
+        remaining = depth - len(preview)
         if remaining > 0:
             lines.append(f"  … +{remaining} more")
     else:
@@ -66,7 +96,7 @@ def format_queue_summary_lines(artifact: dict[str, Any], *, queue_preview: int =
 
 
 def format_initiative_summary_line(artifact: dict[str, Any]) -> str:
-    initiative = artifact.get("initiative") if isinstance(artifact.get("initiative"), dict) else None
+    initiative = snapshot_initiative(artifact)
     if not initiative or not initiative.get("initiativeId"):
         return "initiative: -"
     bits = [clip(initiative.get("initiativeId"), 40)]
@@ -82,7 +112,7 @@ def format_initiative_summary_line(artifact: dict[str, Any]) -> str:
 
 
 def format_last_completed_line(artifact: dict[str, Any]) -> str:
-    last_completed = artifact.get("lastCompleted") if isinstance(artifact.get("lastCompleted"), dict) else None
+    last_completed = snapshot_last_completed(artifact)
     if not last_completed:
         return "last completed: -"
     bits = [
@@ -98,7 +128,7 @@ def format_last_completed_line(artifact: dict[str, Any]) -> str:
 
 
 def format_runtime_line(artifact: dict[str, Any]) -> str | None:
-    runtime = artifact.get("runtime") if isinstance(artifact.get("runtime"), dict) else None
+    runtime = snapshot_runtime(artifact)
     if not runtime:
         return None
     bits = []
@@ -112,12 +142,12 @@ def format_runtime_line(artifact: dict[str, Any]) -> str | None:
 
 
 def format_result_hint_line(artifact: dict[str, Any]) -> str:
-    result_hint_value = artifact.get("resultHint")
+    result_hint_value = snapshot_result_hint(artifact)
     return f"result hint: {clip(result_hint_value, 120) if result_hint_value else '-'}"
 
 
 def format_reconciliation_line(artifact: dict[str, Any]) -> str:
-    reconciliation = artifact.get("reconciliation") if isinstance(artifact.get("reconciliation"), dict) else None
+    reconciliation = snapshot_reconciliation(artifact)
     if not reconciliation:
         return "reconciliation: -"
     bits = [clip(reconciliation.get("decision") or "-", 24)]
@@ -145,7 +175,7 @@ def format_reconciliation_line(artifact: dict[str, Any]) -> str:
 
 
 def format_reconciliation_policy_line(artifact: dict[str, Any]) -> str:
-    reconciliation = artifact.get("reconciliation") if isinstance(artifact.get("reconciliation"), dict) else None
+    reconciliation = snapshot_reconciliation(artifact)
     if not reconciliation:
         return "operator hierarchy: -"
     policy = reconciliation.get("policy") if isinstance(reconciliation.get("policy"), dict) else None
@@ -161,7 +191,7 @@ def format_reconciliation_policy_line(artifact: dict[str, Any]) -> str:
 
 
 def format_warning_summary_line(artifact: dict[str, Any]) -> str:
-    warnings = artifact.get("warnings") if isinstance(artifact.get("warnings"), list) else []
+    warnings = snapshot_warnings(artifact)
     if not warnings:
         return "warnings: -"
     warning_bits = []
@@ -178,11 +208,12 @@ def format_status_lines(artifact: dict[str, Any], *, queue_preview: int = 3) -> 
     lines: list[str] = []
     lines.append(f"project: {artifact.get('project')}")
     lines.append(format_current_line(artifact))
-    current = artifact.get("current") if isinstance(artifact.get("current"), dict) else None
+    current = snapshot_current(artifact)
     if current and current.get("startedAt"):
         lines.append(f"started: {clip(current.get('startedAt'), 32)}")
-    if artifact.get("updatedAt"):
-        lines.append(f"updated: {clip(artifact.get('updatedAt'), 32)}")
+    updated_at = snapshot_updated_at(artifact)
+    if updated_at:
+        lines.append(f"updated: {clip(updated_at, 32)}")
     lines.extend(format_queue_summary_lines(artifact, queue_preview=queue_preview, include_items=True))
     lines.append(format_initiative_summary_line(artifact))
     lines.append(format_last_completed_line(artifact))

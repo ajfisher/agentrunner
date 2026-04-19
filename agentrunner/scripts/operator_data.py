@@ -39,6 +39,79 @@ BuildArtifact = Callable[..., dict[str, Any]]
 WriteArtifact = Callable[[Path, dict[str, Any]], Path]
 
 
+def snapshot_contract(artifact: dict[str, Any]) -> dict[str, Any]:
+    return artifact.get("contract") if isinstance(artifact.get("contract"), dict) else {}
+
+
+def snapshot_project(artifact: dict[str, Any]) -> str | None:
+    value = artifact.get("project")
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def snapshot_status(artifact: dict[str, Any]) -> str | None:
+    value = artifact.get("status")
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def snapshot_current(artifact: dict[str, Any]) -> dict[str, Any] | None:
+    value = artifact.get("current")
+    return value if isinstance(value, dict) else None
+
+
+def snapshot_queue(artifact: dict[str, Any]) -> dict[str, Any]:
+    value = artifact.get("queue")
+    return value if isinstance(value, dict) else {}
+
+
+def snapshot_queue_preview(artifact: dict[str, Any], *, queue_preview: int) -> list[dict[str, Any]]:
+    queue = snapshot_queue(artifact)
+    preview = queue.get("preview")
+    if not isinstance(preview, list):
+        return []
+    items: list[dict[str, Any]] = []
+    for item in preview[: max(0, queue_preview)]:
+        if isinstance(item, dict):
+            items.append(item)
+    return items
+
+
+def snapshot_initiative(artifact: dict[str, Any]) -> dict[str, Any] | None:
+    value = artifact.get("initiative")
+    return value if isinstance(value, dict) else None
+
+
+def snapshot_last_completed(artifact: dict[str, Any]) -> dict[str, Any] | None:
+    value = artifact.get("lastCompleted")
+    return value if isinstance(value, dict) else None
+
+
+def snapshot_runtime(artifact: dict[str, Any]) -> dict[str, Any] | None:
+    value = artifact.get("runtime")
+    return value if isinstance(value, dict) else None
+
+
+def snapshot_reconciliation(artifact: dict[str, Any]) -> dict[str, Any] | None:
+    value = artifact.get("reconciliation")
+    return value if isinstance(value, dict) else None
+
+
+def snapshot_result_hint(artifact: dict[str, Any]) -> str | None:
+    value = artifact.get("resultHint")
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def snapshot_updated_at(artifact: dict[str, Any]) -> str | None:
+    value = artifact.get("updatedAt")
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def snapshot_warnings(artifact: dict[str, Any]) -> list[dict[str, Any]]:
+    warnings = artifact.get("warnings")
+    if not isinstance(warnings, list):
+        return []
+    return [warning for warning in warnings if isinstance(warning, dict)]
+
+
 def iso_now() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat()
 

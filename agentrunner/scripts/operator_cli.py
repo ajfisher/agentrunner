@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Operator-facing CLI for the canonical AgentRunner status artifact.
+"""Operator-facing CLI for the canonical AgentRunner operator snapshot.
 
-This command intentionally prefers ``operator_status.json`` as the blessed
-operator surface. Raw reconstruction is only used in explicitly bounded cases
-requested by the operator (for example ``--rebuild-missing``).
+This command intentionally prefers ``operator_status.json`` via the shared
+``operator_data`` read model as the blessed operator surface. Raw
+reconstruction is only used in explicitly bounded cases requested by the
+operator (for example ``--rebuild-missing``).
 """
 from __future__ import annotations
 
