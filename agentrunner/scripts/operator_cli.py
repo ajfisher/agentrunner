@@ -14,7 +14,17 @@ import time
 from pathlib import Path
 from typing import Any
 
-from status_artifact import build_status_artifact, format_status_lines, write_status_artifact
+from status_artifact import (
+    build_status_artifact,
+    format_current_line,
+    format_initiative_summary_line,
+    format_last_completed_line,
+    format_queue_summary_lines,
+    format_result_hint_line,
+    format_status_lines,
+    format_warning_summary_line,
+    write_status_artifact,
+)
 
 DEFAULT_PROJECTS_ROOT = Path.home() / ".agentrunner" / "projects"
 
@@ -103,48 +113,28 @@ def load_operator_status(
 
 
 def format_queue_lines(artifact: dict[str, Any], *, queue_preview: int) -> list[str]:
-    queue = artifact.get("queue") if isinstance(artifact.get("queue"), dict) else {}
-    preview = queue.get("preview") if isinstance(queue.get("preview"), list) else []
-    depth = int(queue.get("depth") or 0)
-    lines = [f"queue: {depth} item(s)"]
-    if not preview:
-        lines.append("  (empty)")
-        return lines
-    for idx, item in enumerate(preview[: max(0, queue_preview)], start=1):
-        if not isinstance(item, dict):
-            continue
-        bits = [clip(item.get("queueItemId") or "?", 48), clip(item.get("role") or "?", 16)]
-        if item.get("branch"):
-            bits.append(clip(item.get("branch"), 36))
-        if item.get("goal"):
-            bits.append(clip(item.get("goal"), 88))
-        lines.append(f"  {idx}. {' | '.join(bits)}")
-    remaining = depth - len(preview[: max(0, queue_preview)])
-    if remaining > 0:
-        lines.append(f"  … +{remaining} more")
+    lines = [format_current_line(artifact)]
+    lines.extend(format_queue_summary_lines(artifact, queue_preview=queue_preview, include_items=True))
+    lines.append(format_initiative_summary_line(artifact))
+    lines.append(format_last_completed_line(artifact))
+    lines.append(format_warning_summary_line(artifact))
     return lines
 
 
-def format_initiative_lines(artifact: dict[str, Any]) -> list[str]:
-    initiative = artifact.get("initiative") if isinstance(artifact.get("initiative"), dict) else None
-    if not initiative or not initiative.get("initiativeId"):
-        return ["initiative: -"]
-    lines = [f"initiative: {clip(initiative.get('initiativeId'), 64)}"]
-    if initiative.get("phase"):
-        lines.append(f"  phase: {clip(initiative.get('phase'), 48)}")
-    if initiative.get("currentSubtaskId"):
-        lines.append(f"  subtask: {clip(initiative.get('currentSubtaskId'), 64)}")
-    if initiative.get("branch"):
-        lines.append(f"  branch: {clip(initiative.get('branch'), 64)}")
-    if initiative.get("base"):
-        lines.append(f"  base: {clip(initiative.get('base'), 32)}")
+def format_initiative_lines(artifact: dict[str, Any], *, queue_preview: int) -> list[str]:
+    lines = [format_current_line(artifact)]
+    lines.append(format_initiative_summary_line(artifact))
+    lines.extend(format_queue_summary_lines(artifact, queue_preview=queue_preview, include_items=False))
+    lines.append(format_last_completed_line(artifact))
+    lines.append(format_result_hint_line(artifact))
+    lines.append(format_warning_summary_line(artifact))
     return lines
 
 
 def format_warning_lines(artifact: dict[str, Any]) -> list[str]:
     warnings = artifact.get("warnings") if isinstance(artifact.get("warnings"), list) else []
     if not warnings:
-        return []
+        return ["warnings: -"]
     lines = ["warnings:"]
     for warning in warnings:
         text = warning_text(warning)
@@ -159,7 +149,7 @@ def render_command(command: str, artifact: dict[str, Any], *, queue_preview: int
     if command == "queue":
         return format_queue_lines(artifact, queue_preview=queue_preview)
     if command == "initiatives":
-        return format_initiative_lines(artifact)
+        return format_initiative_lines(artifact, queue_preview=queue_preview)
     raise CliUsageError(f"unsupported command: {command}")
 
 

@@ -365,23 +365,33 @@ def write_status_artifact(state_dir: Path, artifact: dict[str, Any]) -> Path:
     return path
 
 
-def format_status_lines(artifact: dict[str, Any], *, queue_preview: int = 3) -> list[str]:
-    lines: list[str] = []
-    lines.append(f"project: {artifact.get('project')}")
+def format_current_line(artifact: dict[str, Any]) -> str:
     current = artifact.get("current") if isinstance(artifact.get("current"), dict) else None
     status = str(artifact.get("status") or "idle").upper()
     if current:
-        lines.append(f"status: {status} | {clip(current.get('queueItemId') or '?', 40)} | {clip(current.get('role') or '?', 16)}")
-        if current.get("startedAt"):
-            lines.append(f"started: {clip(current.get('startedAt'), 32)}")
-    else:
-        lines.append(f"status: {status}")
-    if artifact.get("updatedAt"):
-        lines.append(f"updated: {clip(artifact.get('updatedAt'), 32)}")
+        bits = [
+            status,
+            clip(current.get("queueItemId") or "?", 40),
+            clip(current.get("role") or "?", 16),
+        ]
+        if current.get("branch"):
+            bits.append(clip(current.get("branch"), 36))
+        if current.get("ageSeconds") is not None:
+            bits.append(f"age={current.get('ageSeconds')}s")
+        return f"status: {' | '.join(bits)}"
+    return f"status: {status}"
 
+
+def format_queue_summary_lines(artifact: dict[str, Any], *, queue_preview: int = 3, include_items: bool = True) -> list[str]:
     queue = artifact.get("queue") if isinstance(artifact.get("queue"), dict) else {}
     depth = int(queue.get("depth") or 0)
-    lines.append(f"queue: {depth} item(s)")
+    next_ids = queue.get("nextIds") if isinstance(queue.get("nextIds"), list) else []
+    bits = [f"{depth} item(s)"]
+    if next_ids:
+        bits.append("next=" + ", ".join(clip(item, 32) for item in next_ids[: max(0, queue_preview)]))
+    lines = [f"queue: {' | '.join(bits)}"]
+    if not include_items:
+        return lines
     preview = queue.get("preview") if isinstance(queue.get("preview"), list) else []
     if preview:
         for idx, item in enumerate(preview[: max(0, queue_preview)], start=1):
@@ -398,48 +408,91 @@ def format_status_lines(artifact: dict[str, Any], *, queue_preview: int = 3) -> 
             lines.append(f"  … +{remaining} more")
     else:
         lines.append("  (empty)")
+    return lines
 
+
+def format_initiative_summary_line(artifact: dict[str, Any]) -> str:
     initiative = artifact.get("initiative") if isinstance(artifact.get("initiative"), dict) else None
-    if initiative and initiative.get("initiativeId"):
-        bits = [clip(initiative.get("initiativeId"), 40)]
-        if initiative.get("phase"):
-            bits.append(f"phase={clip(initiative.get('phase'), 24)}")
-        if initiative.get("currentSubtaskId"):
-            bits.append(f"subtask={clip(initiative.get('currentSubtaskId'), 32)}")
-        lines.append(f"initiative: {' | '.join(bits)}")
+    if not initiative or not initiative.get("initiativeId"):
+        return "initiative: -"
+    bits = [clip(initiative.get("initiativeId"), 40)]
+    if initiative.get("phase"):
+        bits.append(f"phase={clip(initiative.get('phase'), 24)}")
+    if initiative.get("currentSubtaskId"):
+        bits.append(f"subtask={clip(initiative.get('currentSubtaskId'), 32)}")
+    if initiative.get("branch"):
+        bits.append(f"branch={clip(initiative.get('branch'), 36)}")
+    if initiative.get("base"):
+        bits.append(f"base={clip(initiative.get('base'), 24)}")
+    return f"initiative: {' | '.join(bits)}"
 
+
+def format_last_completed_line(artifact: dict[str, Any]) -> str:
     last_completed = artifact.get("lastCompleted") if isinstance(artifact.get("lastCompleted"), dict) else None
-    if last_completed:
-        bits = [clip(last_completed.get("queueItemId") or "?", 40), clip(last_completed.get("role") or "?", 16), clip(last_completed.get("status") or "?", 16)]
-        if last_completed.get("endedAt"):
-            bits.append(clip(last_completed.get("endedAt"), 32))
-        if last_completed.get("summary"):
-            bits.append(clip(last_completed.get("summary"), 88))
-        lines.append(f"last completed: {' | '.join(bits)}")
-    else:
-        lines.append("last completed: -")
+    if not last_completed:
+        return "last completed: -"
+    bits = [
+        clip(last_completed.get("queueItemId") or "?", 40),
+        clip(last_completed.get("role") or "?", 16),
+        clip(last_completed.get("status") or "?", 16),
+    ]
+    if last_completed.get("endedAt"):
+        bits.append(clip(last_completed.get("endedAt"), 32))
+    if last_completed.get("summary"):
+        bits.append(clip(last_completed.get("summary"), 88))
+    return f"last completed: {' | '.join(bits)}"
 
+
+def format_runtime_line(artifact: dict[str, Any]) -> str | None:
     runtime = artifact.get("runtime") if isinstance(artifact.get("runtime"), dict) else None
-    if runtime:
-        bits = []
-        if runtime.get("extraDevTurnsUsed") is not None:
-            bits.append(f"extraDevTurnsUsed={runtime.get('extraDevTurnsUsed')}")
-        if runtime.get("lastBranch"):
-            bits.append(f"lastBranch={clip(runtime.get('lastBranch'), 36)}")
-        if bits:
-            lines.append(f"runtime: {', '.join(bits)}")
+    if not runtime:
+        return None
+    bits = []
+    if runtime.get("extraDevTurnsUsed") is not None:
+        bits.append(f"extraDevTurnsUsed={runtime.get('extraDevTurnsUsed')}")
+    if runtime.get("lastBranch"):
+        bits.append(f"lastBranch={clip(runtime.get('lastBranch'), 36)}")
+    if bits:
+        return f"runtime: {', '.join(bits)}"
+    return None
 
+
+def format_result_hint_line(artifact: dict[str, Any]) -> str:
     result_hint_value = artifact.get("resultHint")
-    lines.append(f"result hint: {clip(result_hint_value, 120) if result_hint_value else '-'}")
+    return f"result hint: {clip(result_hint_value, 120) if result_hint_value else '-'}"
+
+
+def format_warning_summary_line(artifact: dict[str, Any]) -> str:
     warnings = artifact.get("warnings") if isinstance(artifact.get("warnings"), list) else []
-    if warnings:
-        warning_bits = []
-        for warning in warnings[:3]:
-            if not isinstance(warning, dict):
-                continue
-            warning_bits.append(f"{warning.get('code')}: {clip(warning.get('summary'), 72)}")
-        if warning_bits:
-            lines.append("warnings: " + " | ".join(warning_bits))
+    if not warnings:
+        return "warnings: -"
+    warning_bits = []
+    for warning in warnings[:3]:
+        if not isinstance(warning, dict):
+            continue
+        warning_bits.append(f"{warning.get('code')}: {clip(warning.get('summary'), 72)}")
+    if warning_bits:
+        return "warnings: " + " | ".join(warning_bits)
+    return "warnings: -"
+
+
+def format_status_lines(artifact: dict[str, Any], *, queue_preview: int = 3) -> list[str]:
+    lines: list[str] = []
+    lines.append(f"project: {artifact.get('project')}")
+    lines.append(format_current_line(artifact))
+    current = artifact.get("current") if isinstance(artifact.get("current"), dict) else None
+    if current and current.get("startedAt"):
+        lines.append(f"started: {clip(current.get('startedAt'), 32)}")
+    if artifact.get("updatedAt"):
+        lines.append(f"updated: {clip(artifact.get('updatedAt'), 32)}")
+    lines.extend(format_queue_summary_lines(artifact, queue_preview=queue_preview, include_items=True))
+    lines.append(format_initiative_summary_line(artifact))
+    lines.append(format_last_completed_line(artifact))
+    runtime_line = format_runtime_line(artifact)
+    if runtime_line:
+        lines.append(runtime_line)
+    lines.append(format_result_hint_line(artifact))
+    lines.append(format_warning_summary_line(artifact))
     return lines
 
 
