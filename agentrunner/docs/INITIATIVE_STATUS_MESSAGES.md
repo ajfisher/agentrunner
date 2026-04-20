@@ -75,7 +75,7 @@ Current lifecycle events recognized by the shared contract:
 | `review_approved` | `update` | Signals forward progress without posting a sibling message |
 | `review_blocked` | `update` | Signals a blocker while the initiative is still live |
 | `remediation_queued` | `update` | Shows that a repair loop has been scheduled |
-| `merge_blocked` | `finalize` | Current terminal blocker for closure/merge in v1 |
+| `merge_blocked` | `update` | Merge/closure hit a blocker, but the initiative stays live on the same message while remediation or a later terminal event plays out |
 | `merge_completed` | `finalize` | Initiative closed successfully through merge |
 | `initiative_completed` | `finalize` | Terminal success even if there is no distinct merge event |
 | `initiative_blocked` | `finalize` | Terminal blocked state needing operator attention |
@@ -84,12 +84,12 @@ Current lifecycle events recognized by the shared contract:
 ### Operation resolution rules
 
 `resolve_status_message_operation()` follows a small deterministic policy:
-- terminal lifecycle events resolve to `finalize` **when a persisted handle exists**
-- terminal lifecycle events resolve to `create` if there is no prior handle yet
-- non-terminal events resolve to `update` once a handle exists
+- terminal lifecycle events (`merge_completed`, `initiative_completed`, `initiative_blocked`, `initiative_failed`) resolve to `finalize` **when a persisted handle exists**
+- those same terminal lifecycle events resolve to `create` if there is no prior handle yet
+- non-terminal events — including `merge_blocked` — resolve to `update` once a handle exists
 - otherwise the first publish is `create`
 
-That lets late-discovered terminal states still emit a single compact message instead of silently doing nothing.
+That lets late-discovered terminal states still emit a single compact message instead of silently doing nothing, while transient blockers keep editing the same message until the initiative either recovers or lands in a real terminal state.
 
 ## Discord adapter in v1
 
