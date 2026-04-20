@@ -134,6 +134,22 @@ def test_unavailable_renderer_uses_degraded_status_chips() -> None:
     assert 'Canonical operator snapshot is missing or malformed' in html
 
 
+def test_refresh_model_keeps_paused_status_chip_in_warn_tone() -> None:
+    envelope = sample_envelope()
+    envelope['snapshot']['status'] = 'paused'
+    envelope['snapshot']['current'] = {}
+    envelope['snapshot']['queue'] = {'depth': 0, 'nextIds': [], 'preview': []}
+    envelope['snapshot']['warnings'] = []
+
+    model = operator_web.build_page_model_from_snapshot_envelope(envelope)
+    payload = operator_web.page_model_payload(model)
+    html = operator_web.render_html_from_snapshot_envelope(envelope)
+
+    assert payload['chips'][0] == {'label': 'overall paused', 'tone': 'warn'}
+    assert '"paused": "warn"' in html
+    assert "const statusTone = statusToneMap[status] || 'info';" in html
+
+
 def test_cli_supports_fixture_and_built_in_smoke_render_paths() -> None:
     with tempfile.TemporaryDirectory(prefix='operator-web-') as tmp:
         tmp_path = Path(tmp)
@@ -196,6 +212,7 @@ def main() -> int:
     test_rendered_html_mentions_the_api_contract_not_a_second_runtime()
     test_initial_page_model_json_is_safe_against_script_breakout()
     test_unavailable_renderer_uses_degraded_status_chips()
+    test_refresh_model_keeps_paused_status_chip_in_warn_tone()
     test_cli_supports_fixture_and_built_in_smoke_render_paths()
     test_top_level_cli_uses_api_as_the_launch_path_for_browser_work()
     test_top_level_cli_no_longer_exposes_web_command()

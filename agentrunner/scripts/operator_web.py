@@ -146,18 +146,24 @@ def _warning_tone(severity: str) -> str:
     return "neutral"
 
 
+STATUS_TONE_MAP: dict[str, str] = {
+    "active": "good",
+    "ok": "good",
+    "idle": "neutral",
+    "paused": "warn",
+    "missing": "danger",
+    "snapshot-unavailable": "danger",
+    "unknown": "warn",
+}
+
+
+def _status_tone(status: Any) -> str:
+    return STATUS_TONE_MAP.get(str(status or "unknown"), "info")
+
+
 def _status_chip(snapshot: dict[str, Any]) -> WebChip:
     status = str(snapshot.get("status") or "unknown")
-    tone_map = {
-        "active": "good",
-        "ok": "good",
-        "idle": "neutral",
-        "paused": "warn",
-        "missing": "danger",
-        "snapshot-unavailable": "danger",
-        "unknown": "warn",
-    }
-    return WebChip(label=f"overall {status.replace('-', ' ')}", tone=tone_map.get(status, "info"))
+    return WebChip(label=f"overall {status.replace('-', ' ')}", tone=_status_tone(status))
 
 
 def _queue_chip(snapshot: dict[str, Any]) -> WebChip:
@@ -646,6 +652,7 @@ def render_html(model: OperatorPageModel) -> str:
 
       const status = String(snapshot.status || 'unknown');
       const statusLabel = status.replaceAll('-', ' ');
+      const statusToneMap = {{"active": "good", "ok": "good", "idle": "neutral", "paused": "warn", "missing": "danger", "snapshot-unavailable": "danger", "unknown": "warn"}};
       let statusSummary = `${{statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1)}} — nothing is running and the queue is clear.`;
       if (current && Object.keys(current).length) {{
         const queueItemId = current.queueItemId || 'current work';
@@ -661,7 +668,7 @@ def render_html(model: OperatorPageModel) -> str:
 
       const recency = recencyFromUpdatedAt(snapshot.updatedAt);
       const chips = [];
-      const statusTone = ['active', 'ok'].includes(status) ? 'good' : ['missing', 'snapshot-unavailable'].includes(status) ? 'danger' : status === 'unknown' ? 'warn' : 'neutral';
+      const statusTone = statusToneMap[status] || 'info';
       chips.push({{label: `overall ${{statusLabel}}`, tone: statusTone}});
       if (current && Object.keys(current).length) {{
         chips.push({{label: `running · queue depth ${{queueDepth}}`, tone: queueDepth === 0 ? 'good' : 'info'}});
