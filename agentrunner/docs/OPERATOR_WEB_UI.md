@@ -72,6 +72,26 @@ Any browser-facing UI should treat the nested snapshot payload as the contract a
 
 Those fields are shared with the text CLI, local API, local TUI, and optional MQTT adapter so all operator surfaces stay aligned.
 
+## Where the web UI sits in the operator stack
+
+Keep future UI work aligned to this adapter order:
+
+1. **CLI** (`python3 -m agentrunner status|queue|initiatives|watch`)  
+   canonical human/operator entrypoint for read-only status views
+2. **Localhost API** (`python3 -m agentrunner api --host 127.0.0.1 --port 8765`)  
+   tiny machine-facing JSON/HTML adapter over the canonical snapshot contract
+3. **Web UI** (`GET /operator?project=<project>`)  
+   optional browser renderer attached to that existing localhost API path
+4. **TUI** (`python3 -m agentrunner tui --project <project>`)  
+   optional local terminal adapter over the same read model
+5. **MQTT broadcast** (documented separately, disabled by default)  
+   optional downstream publish path for the same canonical operator snapshot
+
+Important consequence:
+- the web UI is **not** parallel authority with the CLI/API/TUI/MQTT surfaces
+- it is one more adapter over the same `operator_status.json` → `operator_data.py` contract
+- if the CLI, API, TUI, MQTT, and browser view disagree, fix the shared snapshot/read-model contract rather than teaching the web UI its own runtime truth
+
 ## Recommended shape for the first browser surface
 
 A minimal browser UI is expected to be a thin renderer over the existing local API response, for example:

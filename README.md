@@ -175,6 +175,13 @@ For smoke proofs without a running local API or live mechanics files, render HTM
 
 This same localhost-only API is the chosen attach surface for the optional browser UI. The UI is expected to be a thin read-only renderer over the canonical snapshot payload, not a queue/state mutation path and not a public hosting default.
 
+Operator adapter stack for future UI work:
+- CLI (`python3 -m agentrunner status|queue|initiatives|watch`) = preferred human/operator entrypoint
+- localhost API (`python3 -m agentrunner api ...`) = canonical machine-facing adapter for JSON/HTML snapshot access
+- web UI (`GET /operator?project=<project>`) = optional browser renderer over that API, not a second runtime authority
+- TUI (`python3 -m agentrunner tui ...`) = optional local terminal adapter over the same snapshot/read model
+- MQTT broadcast = optional downstream publish path for the same canonical operator data, disabled by default
+
 ### Optional local operator TUI
 
 When a human operator wants a richer terminal view than the plain `status`/`queue` text, use:

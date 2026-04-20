@@ -129,6 +129,20 @@ def test_cli_supports_fixture_and_built_in_smoke_render_paths() -> None:
         assert 'no mechanics reads' in smoke_proc.stdout
 
 
+def test_top_level_cli_uses_api_as_the_launch_path_for_browser_work() -> None:
+    proc = subprocess.run(
+        [sys.executable, '-m', 'agentrunner', 'api', '--help'],
+        cwd=str(REPO_ROOT),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert proc.returncode == 0
+    assert '--host' in proc.stdout
+    assert '--port' in proc.stdout
+    assert 'read-only local AgentRunner operator snapshot API' in proc.stdout
+
+
 def test_top_level_cli_no_longer_exposes_web_command() -> None:
     proc = subprocess.run(
         [sys.executable, '-m', 'agentrunner', 'web'],
@@ -147,8 +161,9 @@ def main() -> int:
     test_renderer_requires_the_canonical_snapshot_fields()
     test_rendered_html_mentions_the_api_contract_not_a_second_runtime()
     test_cli_supports_fixture_and_built_in_smoke_render_paths()
+    test_top_level_cli_uses_api_as_the_launch_path_for_browser_work()
     test_top_level_cli_no_longer_exposes_web_command()
-    print('ok: browser viewmodel/html seam renders canonical operator snapshots, supports fixture/sample smoke paths, and still avoids a separate web runtime')
+    print('ok: browser viewmodel/html seam renders canonical operator snapshots, supports fixture/sample smoke paths, proves the api launch path, and still avoids a separate web runtime')
     return 0
 
 
