@@ -118,6 +118,8 @@ Design contract:
 - lifecycle updates should fire only on meaningful initiative boundaries, not every minor tick
 - adapters must return a normalized durable message handle so later updates can target the same message instead of forking duplicates
 - delivery failures are non-fatal: initiative execution continues and the failure is recorded in initiative-local delivery metadata/history
+- the first concrete adapter lives in `agentrunner/scripts/initiative_status_discord.py` and uses the existing OpenClaw `message` seam (`send` for create, `edit` for update/finalize) rather than a bespoke Discord client
+- Discord routing stays configurable through compact target metadata (`channel`, `target`, optional `threadId`, optional adapter metadata) so the shared initiative-status contract remains provider-agnostic while still persisting a normalized returned handle (`id`, `channelId`, `threadId`, `provider`, optional `url`)
 
 This keeps the core contract portable for Discord-first delivery now and Telegram/Slack-style adapters later.
 
