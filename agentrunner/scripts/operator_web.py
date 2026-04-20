@@ -234,12 +234,23 @@ def page_model_payload(model: OperatorPageModel) -> dict[str, Any]:
     }
 
 
+def _json_for_html_script(value: Any) -> str:
+    return (
+        json.dumps(value, ensure_ascii=False)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
+
+
 def render_html(model: OperatorPageModel) -> str:
     def esc(value: Any) -> str:
         return html.escape(str(value), quote=True)
 
     initial_payload = page_model_payload(model)
-    initial_payload_json = json.dumps(initial_payload, ensure_ascii=False)
+    initial_payload_json = _json_for_html_script(initial_payload)
     refresh_ms = 5000
     return f"""<!doctype html>
 <html lang=\"en\">

@@ -103,6 +103,16 @@ def test_rendered_html_mentions_the_api_contract_not_a_second_runtime() -> None:
     assert "fetch(`/v1/operator/snapshot?project=${encodeURIComponent(project)}`" in html
 
 
+def test_initial_page_model_json_is_safe_against_script_breakout() -> None:
+    envelope = sample_envelope()
+    envelope['snapshot']['queue']['preview'][0]['goal'] = 'goal </script><script>alert(1)</script>'
+    html = operator_web.render_html_from_snapshot_envelope(envelope)
+    assert '</script><script>alert(1)</script>' not in html
+    assert '\\u003c/script\\u003e\\u003cscript\\u003ealert(1)\\u003c/script\\u003e' in html
+    assert 'alert(1)' in html
+    assert 'const initialPageModel = {' in html
+
+
 def test_cli_supports_fixture_and_built_in_smoke_render_paths() -> None:
     with tempfile.TemporaryDirectory(prefix='operator-web-') as tmp:
         tmp_path = Path(tmp)
@@ -163,6 +173,7 @@ def main() -> int:
     test_page_model_is_derived_from_canonical_snapshot_contract()
     test_renderer_requires_the_canonical_snapshot_fields()
     test_rendered_html_mentions_the_api_contract_not_a_second_runtime()
+    test_initial_page_model_json_is_safe_against_script_breakout()
     test_cli_supports_fixture_and_built_in_smoke_render_paths()
     test_top_level_cli_uses_api_as_the_launch_path_for_browser_work()
     test_top_level_cli_no_longer_exposes_web_command()
