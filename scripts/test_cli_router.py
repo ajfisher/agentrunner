@@ -157,10 +157,11 @@ def test_module_router_delegates_tui_from_checkout() -> None:
 
         assert result.returncode == 0, result.stderr
         assert result.stderr == ''
-        assert 'AgentRunner TUI · project=demo' in result.stdout
+        assert 'AgentRunner operator TUI · project=demo' in result.stdout
         assert 'mode: local read-only operator surface over the canonical snapshot' in result.stdout
         assert 'feature/agentrunner/operator-tui' in result.stdout
-        assert 'warning:stale_run Active run is stale.' in result.stdout
+        assert '[warning] stale_run' in result.stdout
+        assert 'Active run is stale.' in result.stdout
 
 
 def main() -> int:
