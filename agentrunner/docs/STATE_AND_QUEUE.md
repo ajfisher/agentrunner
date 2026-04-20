@@ -26,6 +26,52 @@ Closure semantics:
 - a retained pointer after blocked/error closure should be surfaced as blocked/stale context, not mistaken for healthy forward progress
 - once an initiative has reached a terminal-success phase (`completed` / `closed`), later stray queue items carrying that initiative metadata must not reactivate the main-state pointer or restart phase advancement for that initiative
 
+## Initiative status message contract
+
+Initiative-local state may also persist a compact `statusMessage` block under
+`initiatives/<initiativeId>/state.json`.
+This is the mechanics-owned persistence seam for a single updatable ops/status
+message per initiative.
+
+Contract:
+- `contract` — `{ "name": "agentrunner.initiative-status-message", "version": 1 }`
+- `adapter` — normalized provider/adaptor id such as `discord`
+- `target` — adapter-specific routing target metadata (for example channel/thread ids)
+- `handle` — normalized returned message handle for later updates; the shared shape is intentionally compact:
+  - `id` — provider message id / durable handle
+  - `channelId` — provider channel/container id when applicable
+  - `threadId` — provider thread id when applicable
+  - `provider` — provider/adaptor id when returned by the adapter
+  - `url` — optional message permalink
+- `delivery` — lifecycle/persistence metadata:
+  - `status` — `idle`, `active`, `finalized`, or `error`
+  - `createdAt` / `updatedAt` / `finalizedAt`
+  - `lastOperation` — `create`, `update`, or `finalize`
+  - `lastError` — compact non-fatal adapter failure note when present
+  - `providerMessageId` / `providerChannelId` / `providerThreadId`
+  - `metadata` — adapter-specific delivery details that should survive later edits
+- `lastEvent` — last normalized lifecycle event payload written through the shared contract
+- `history[]` — short bounded audit trail of recent create/update/finalize attempts
+
+Shared lifecycle payload contract:
+- defined in `agentrunner/scripts/initiative_status.py`
+- `operation` is one of `create`, `update`, `finalize`
+- `lifecycleEvent` is one meaningful initiative boundary such as:
+  - `initiative_activated`
+  - `initiative_phase_changed`
+  - `subtask_started`
+  - `review_approved` / `review_blocked`
+  - `remediation_queued`
+  - `merge_blocked` / `merge_completed`
+  - `initiative_completed` / `initiative_blocked` / `initiative_failed`
+- the payload also carries a compact initiative summary, queue-item summary, optional result summary, and a short human-readable `summary`
+
+Adapter semantics:
+- `create` should emit the first status message and return the normalized handle persisted under `statusMessage.handle`
+- `update` should reuse that persisted handle and mutate the existing message rather than posting a sibling message
+- `finalize` should write the terminal initiative state, preserve the final handle/delivery metadata, and mark `delivery.finalizedAt`
+- adapter failures must be non-fatal to initiative execution; record them in `delivery.lastError` / history instead of corrupting mechanics state
+
 Queue events are the source of truth; `queue.json` is a convenience view.
 `operator_status.json` is also derivative: it is a blessed summary artifact for operator surfaces, not an authority for scheduling, enqueueing, or completion.
 
@@ -91,6 +137,7 @@ Recommended `initiative` fields:
 - `initiativeId`
 - `phase`
 - `currentSubtaskId`
+- `statusMessage` — compact initiative-local delivery summary when status-message persistence exists
 
 Recommended `lastCompleted` fields:
 - `queueItemId`

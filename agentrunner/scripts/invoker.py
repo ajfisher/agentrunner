@@ -12,6 +12,7 @@ VALID_ROLES = {'developer', 'reviewer', 'manager', 'merger', 'architect'}
 
 from status_artifact import build_status_artifact, write_status_artifact
 from operator_mqtt import maybe_publish_operator_snapshot
+from initiative_status import ensure_status_message_state
 
 
 def iso_now() -> str:
@@ -192,7 +193,7 @@ def ensure_initiative_paths(state_dir: str, initiative: dict | None) -> dict:
         'INITIATIVE_DECISION_PATH': str(base / 'decision.json'),
     }
     if not state_path.exists():
-        save_json(state_path, {
+        seeded = {
             'initiativeId': initiative_id,
             'phase': initiative.get('phase') or 'design-manager',
             'managerBriefPath': paths['INITIATIVE_BRIEF_PATH'],
@@ -204,7 +205,9 @@ def ensure_initiative_paths(state_dir: str, initiative: dict | None) -> dict:
             'branch': initiative.get('branch'),
             'base': initiative.get('base'),
             'writtenAt': iso_now(),
-        })
+        }
+        ensure_status_message_state(seeded)
+        save_json(state_path, seeded)
     return paths
 
 

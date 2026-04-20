@@ -17,8 +17,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 try:
+    from .initiative_status import status_message_summary
     from .reconciliation_policy import reconcile_runtime_state
 except ImportError:  # pragma: no cover - script-mode fallback
+    from initiative_status import status_message_summary
     from reconciliation_policy import reconcile_runtime_state
 
 DEFAULT_PROJECTS_ROOT = Path.home() / ".agentrunner" / "projects"
@@ -555,6 +557,7 @@ def initiative_summary(state_dir: Path, state: dict[str, Any], *, warnings: list
         branch = loaded.get("branch") or branch
         base = loaded.get("base") or base
 
+    status_message = status_message_summary(loaded or seed) if isinstance(loaded or seed, dict) else None
     return {
         "initiativeId": initiative_id,
         "phase": phase,
@@ -562,6 +565,7 @@ def initiative_summary(state_dir: Path, state: dict[str, Any], *, warnings: list
         "branch": branch,
         "base": base,
         "statePath": state_path,
+        "statusMessage": status_message,
     }
 
 

@@ -7,6 +7,11 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:
+    from .initiative_status import ensure_status_message_state
+except ImportError:  # pragma: no cover - script-mode fallback
+    from initiative_status import ensure_status_message_state
+
 ROOT = Path('/home/openclaw/projects/agentrunner')
 
 
@@ -55,7 +60,7 @@ def ensure_initiative_paths(state_dir: str, initiative: dict) -> dict:
         'managerDecisionPath': str(base / 'decision.json'),
     }
     if not state_path.exists():
-        save_json(state_path, {
+        seeded = {
             'initiativeId': initiative_id,
             'phase': initiative.get('phase') or 'design-manager',
             'managerBriefPath': paths['managerBriefPath'],
@@ -67,7 +72,9 @@ def ensure_initiative_paths(state_dir: str, initiative: dict) -> dict:
             'branch': initiative.get('branch'),
             'base': initiative.get('base'),
             'writtenAt': iso_now(),
-        })
+        }
+        ensure_status_message_state(seeded)
+        save_json(state_path, seeded)
     return paths
 
 

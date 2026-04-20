@@ -102,6 +102,25 @@ Design intent:
 - the optional TUI/web/API surfaces must not become mechanics prerequisites; dispatch/completion/recovery still work without them
 - UI work should preserve the same named operator fields (`status`, `current`, `queue`, `initiative`, `lastCompleted`, `warnings`, `reconciliation`, `updatedAt`) so humans and machines keep seeing the same contract through different lenses
 
+## Initiative status message adapters
+
+AgentRunner may also maintain one compact initiative-scoped status message through
+an adapter seam.
+This is an operator-facing convenience layer, not mechanics authority.
+
+Design contract:
+- the shared lifecycle/persistence contract lives in `agentrunner/scripts/initiative_status.py`
+- persistence is initiative-local (`initiatives/<initiativeId>/state.json` under `statusMessage`), not in main `state.json`
+- adapters implement the same three operations over that contract:
+  - `create`
+  - `update`
+  - `finalize`
+- lifecycle updates should fire only on meaningful initiative boundaries, not every minor tick
+- adapters must return a normalized durable message handle so later updates can target the same message instead of forking duplicates
+- delivery failures are non-fatal: initiative execution continues and the failure is recorded in initiative-local delivery metadata/history
+
+This keeps the core contract portable for Discord-first delivery now and Telegram/Slack-style adapters later.
+
 ## Operator-facing Discord summaries
 
 Human-visible Discord messages are **not** the source of truth.
