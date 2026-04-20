@@ -11,7 +11,7 @@ import argparse
 import sys
 from typing import Callable
 
-from agentrunner.scripts import enqueue_initiative, operator_api, operator_cli, operator_tui
+from agentrunner.scripts import enqueue_initiative, operator_api, operator_cli, operator_tui, operator_web
 
 Router = Callable[[list[str]], int]
 
@@ -32,6 +32,10 @@ def route_tui(argv: list[str]) -> int:
     return operator_tui.main(argv)
 
 
+def route_web(argv: list[str]) -> int:
+    return operator_web.main(argv)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agentrunner",
@@ -40,7 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "command",
-        choices=["brief", "status", "queue", "initiatives", "watch", "api", "tui"],
+        choices=["brief", "status", "queue", "initiatives", "watch", "api", "tui", "web"],
         help="Top-level MVP command to run",
     )
     parser.add_argument(
@@ -69,6 +73,8 @@ def main(argv: list[str] | None = None) -> int:
         return route_api(passthrough)
     if ns.command == "tui":
         return route_tui(passthrough)
+    if ns.command == "web":
+        return route_web(passthrough)
     return route_operator(ns.command, passthrough)
 
 
