@@ -12,7 +12,8 @@ VALID_ROLES = {'developer', 'reviewer', 'manager', 'merger', 'architect'}
 
 from status_artifact import build_status_artifact, write_status_artifact
 from operator_mqtt import maybe_publish_operator_snapshot
-from initiative_status import ensure_status_message_state
+from initiative_status import build_status_message_event, ensure_status_message_state, resolve_status_message_operation
+from initiative_status_discord import apply_discord_status_message
 
 
 def iso_now() -> str:
@@ -85,6 +86,77 @@ def gateway_http_invoke(tool: str, args: dict, *, action: str | None = None) -> 
         req.add_header('Authorization', f'Bearer {token}')
     with urllib.request.urlopen(req, timeout=30) as resp:
         return json.loads(resp.read().decode())
+
+
+def status_message_target_from_env() -> dict | None:
+    raw = os.environ.get('AGENTRUNNER_INITIATIVE_STATUS_TARGET_JSON')
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def emit_initiative_status_update(state_dir: str | Path, *, queue_item: dict | None, result: dict) -> bool:
+    if not isinstance(queue_item, dict):
+        return False
+    initiative = queue_item.get('initiative') if isinstance(queue_item.get('initiative'), dict) else None
+    if not initiative:
+        return False
+    initiative_id = initiative.get('initiativeId')
+    if not isinstance(initiative_id, str) or not initiative_id.strip():
+        return False
+    initiative_state_path = Path(state_dir) / 'initiatives' / initiative_id / 'state.json'
+    if not initiative_state_path.exists():
+        return False
+    initiative_state = load_json(initiative_state_path, {})
+    current = ensure_status_message_state(initiative_state)
+    effective_target = ((current.get('target') if isinstance(current, dict) else None) or status_message_target_from_env())
+    if not effective_target and not current.get('handle'):
+        return False
+
+    role = str(queue_item.get('role') or '')
+    lifecycle_event = None
+    summary = str(result.get('summary') or '').strip() or None
+    blocked_reason = None
+    if role == 'reviewer' and result.get('approved') is True:
+        lifecycle_event = 'review_approved'
+        summary = summary or f"Reviewer approved initiative subtask {initiative.get('subtaskId') or initiative_state.get('currentSubtaskId') or '-'}"
+    elif role == 'reviewer' and result.get('status') == 'blocked':
+        lifecycle_event = 'review_blocked'
+        blocked_reason = summary
+    elif role == 'merger' and result.get('status') == 'blocked':
+        lifecycle_event = 'merge_blocked'
+        blocker = result.get('mergeBlocker') if isinstance(result.get('mergeBlocker'), dict) else {}
+        blocked_reason = str(blocker.get('detail') or summary or 'Merge blocked').strip() or None
+    elif role == 'merger' and result.get('status') == 'ok' and result.get('merged') is True:
+        lifecycle_event = 'merge_completed'
+        summary = summary or f"Merged {initiative_state.get('branch') or queue_item.get('branch')} into {initiative_state.get('base') or queue_item.get('base')}"
+    if not lifecycle_event:
+        return False
+
+    operation = resolve_status_message_operation(initiative_state, lifecycle_event=lifecycle_event)
+    event = build_status_message_event(
+        operation=operation,
+        lifecycle_event=lifecycle_event,
+        initiative_state=initiative_state,
+        summary=summary,
+        queue_item=queue_item,
+        result=result,
+        blocked_reason=blocked_reason,
+    )
+    apply_discord_status_message(
+        initiative_state,
+        operation=operation,
+        lifecycle_event=lifecycle_event,
+        event=event,
+        invoke_gateway=lambda tool, args: gateway_http_invoke(tool, args, action=args.get('action')),
+        target=effective_target,
+    )
+    save_json(initiative_state_path, initiative_state)
+    return True
 
 
 def parse_iso(ts: str | None):
@@ -787,6 +859,8 @@ def poll_completion(state_dir: str, state: dict) -> bool:
         failure = artifact_failure_result(role, 'handoff artifact', ['reviewer requested follow-up developer work but no valid handoff artifact was produced'])
         finish_current_run(state_dir, state, cur=cur, status='blocked', result=failure, role=role, qid=qid)
         return True
+
+    emit_initiative_status_update(state_dir, queue_item=cur.get('queueItem'), result=result)
 
     status = str(result.get('status', 'ok'))
     finish_current_run(state_dir, state, cur=cur, status=status, result=result, role=role, qid=qid)

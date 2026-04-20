@@ -40,6 +40,12 @@ VALID_STATUS_LIFECYCLE_EVENTS = (
     "initiative_blocked",
     "initiative_failed",
 )
+TERMINAL_STATUS_LIFECYCLE_EVENTS = (
+    "merge_completed",
+    "initiative_completed",
+    "initiative_blocked",
+    "initiative_failed",
+)
 
 
 def iso_now() -> str:
@@ -231,6 +237,20 @@ def apply_status_message_delivery(
         event_record["phase"] = event.get("initiative", {}).get("phase") if isinstance(event.get("initiative"), dict) else None
     state["history"] = [*state.get("history", []), event_record][-12:]
     return state
+
+
+def resolve_status_message_operation(initiative_state: dict[str, Any], *, lifecycle_event: str) -> str:
+    state = ensure_status_message_state(initiative_state)
+    delivery = state.get("delivery") if isinstance(state.get("delivery"), dict) else {}
+    handle = state.get("handle") if isinstance(state.get("handle"), dict) else None
+
+    if lifecycle_event in TERMINAL_STATUS_LIFECYCLE_EVENTS:
+        return "finalize" if handle and handle.get("id") else "create"
+    if handle and handle.get("id"):
+        return "update"
+    if delivery.get("lastOperation") == "create" and delivery.get("status") in {"active", "error", "finalized"}:
+        return "update"
+    return "create"
 
 
 def status_message_summary(initiative_state: dict[str, Any]) -> dict[str, Any] | None:

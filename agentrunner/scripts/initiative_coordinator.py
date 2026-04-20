@@ -3,14 +3,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
 try:
-    from .initiative_status import ensure_status_message_state
+    from .initiative_status import build_status_message_event, ensure_status_message_state, resolve_status_message_operation
+    from .initiative_status_discord import apply_discord_status_message
 except ImportError:  # pragma: no cover - script-mode fallback
-    from initiative_status import ensure_status_message_state
+    from initiative_status import build_status_message_event, ensure_status_message_state, resolve_status_message_operation
+    from initiative_status_discord import apply_discord_status_message
 
 ROOT = Path('/home/openclaw/projects/agentrunner')
 
@@ -32,6 +36,72 @@ def save_json(path: str | Path, obj) -> None:
     tmp = p.with_suffix(p.suffix + '.tmp')
     tmp.write_text(json.dumps(obj, indent=2, ensure_ascii=False) + '\n')
     tmp.replace(p)
+
+
+def status_message_target_from_env() -> dict | None:
+    raw = os.environ.get('AGENTRUNNER_INITIATIVE_STATUS_TARGET_JSON')
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def gateway_token() -> str | None:
+    raw = os.environ.get('OPENCLAW_GATEWAY_TOKEN')
+    if raw:
+        return raw
+    config_path = Path('/home/openclaw/.openclaw/openclaw.json')
+    if not config_path.exists():
+        return None
+    try:
+        cfg = json.loads(config_path.read_text())
+    except Exception:
+        return None
+    gateway = cfg.get('gateway') if isinstance(cfg, dict) else {}
+    auth = gateway.get('auth') if isinstance(gateway, dict) else {}
+    token = auth.get('token') if isinstance(auth, dict) else None
+    return token if isinstance(token, str) and token.strip() else None
+
+
+def _gateway_message_invoke(_tool: str, args: dict) -> dict:
+    url = os.environ.get('OPENCLAW_GATEWAY_HTTP', 'http://127.0.0.1:18789/tools/invoke')
+    body = {'tool': 'message', 'args': args, 'action': args.get('action')}
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), method='POST')
+    req.add_header('Content-Type', 'application/json')
+    token = gateway_token()
+    if token:
+        req.add_header('Authorization', f'Bearer {token}')
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read().decode())
+
+
+def emit_status_message(initiative_state: dict, *, lifecycle_event: str, summary: str, queue_item: dict | None = None, result: dict | None = None, blocked_reason: str | None = None, target: dict | None = None, invoke_gateway=None) -> bool:
+    effective_target = target or status_message_target_from_env() or ((initiative_state.get('statusMessage') or {}).get('target') if isinstance(initiative_state.get('statusMessage'), dict) else None)
+    current = ensure_status_message_state(initiative_state)
+    if not effective_target and not current.get('handle'):
+        return False
+    operation = resolve_status_message_operation(initiative_state, lifecycle_event=lifecycle_event)
+    event = build_status_message_event(
+        operation=operation,
+        lifecycle_event=lifecycle_event,
+        initiative_state=initiative_state,
+        summary=summary,
+        queue_item=queue_item,
+        result=result,
+        blocked_reason=blocked_reason,
+    )
+    apply_discord_status_message(
+        initiative_state,
+        operation=operation,
+        lifecycle_event=lifecycle_event,
+        event=event,
+        invoke_gateway=invoke_gateway or _gateway_message_invoke,
+        target=effective_target,
+    )
+    return True
 
 
 def append_queue_event(state_dir: str, kind: str, *, item: dict | None = None, id: str | None = None, status: str | None = None) -> None:
@@ -102,6 +172,12 @@ def enqueue_architect_item(state_dir: str, *, project: str, queue_item: dict, in
     }
     append_queue_event(state_dir, 'INSERT_FRONT', item=item)
     initiative_state['phase'] = 'design-architect'
+    emit_status_message(
+        initiative_state,
+        lifecycle_event='initiative_activated',
+        summary=f'Initiative {initiative_id} activated and handed to Architect planning.',
+        queue_item=item,
+    )
 
 
 def compile_subtask_queue_item(*, project: str, repo_path: str | None, initiative_state: dict, plan: dict, subtask: dict) -> dict:
@@ -142,6 +218,12 @@ def enqueue_first_subtask(state_dir: str, *, project: str, queue_item: dict, ini
     initiative_state['currentSubtaskId'] = subtask['subtaskId']
     initiative_state['pendingSubtasks'] = [s['subtaskId'] for s in subtasks]
     initiative_state['completedSubtasks'] = []
+    emit_status_message(
+        initiative_state,
+        lifecycle_event='subtask_started',
+        summary=f"Started initiative subtask {subtask['subtaskId']}.",
+        queue_item=item,
+    )
 
 
 def current_initiative_pointer(state: dict) -> dict | None:
@@ -219,6 +301,13 @@ def maybe_finalize_successful_initiative(state_dir: str, *, state: dict, queue_i
 
     initiative_state['phase'] = 'completed'
     initiative_state['currentSubtaskId'] = None
+    emit_status_message(
+        initiative_state,
+        lifecycle_event='initiative_completed',
+        summary=f'Initiative {initiative_id} completed and merged successfully.',
+        queue_item=queue_item,
+        result=result,
+    )
     save_json(initiative_state_path, initiative_state)
 
     if pointer:
@@ -279,6 +368,14 @@ def enqueue_merger_remediation_item(state_dir: str, *, state: dict, last: dict, 
         }
         remediation['activeAttempt'] = None
         initiative_state['remediation'] = remediation
+        emit_status_message(
+            initiative_state,
+            lifecycle_event='initiative_blocked',
+            summary=f'Initiative {initiative_id} is blocked after exhausting closure remediation budget.',
+            queue_item=queue_item,
+            result=result,
+            blocked_reason=remediation['halted']['detail'],
+        )
         save_json(initiative_state_path, initiative_state)
         return False
 
@@ -366,6 +463,14 @@ def enqueue_merger_remediation_item(state_dir: str, *, state: dict, last: dict, 
     pending.insert(0, remediation_subtask_id)
     initiative_state['completedSubtasks'] = completed
     initiative_state['pendingSubtasks'] = pending
+    emit_status_message(
+        initiative_state,
+        lifecycle_event='remediation_queued',
+        summary=f'Queued closure remediation attempt {attempt_number} for initiative {initiative_id}.',
+        queue_item=followup_item,
+        result=result,
+        blocked_reason=reason,
+    )
     save_json(initiative_state_path, initiative_state)
 
     state['initiative'] = {'initiativeId': initiative_id, 'phase': initiative_state.get('phase'), 'statePath': str(initiative_state_path)}
@@ -521,6 +626,14 @@ def maybe_advance(state_dir: str) -> bool:
             }
             remediation['activeAttempt'] = None
             initiative_state['remediation'] = remediation
+            emit_status_message(
+                initiative_state,
+                lifecycle_event='initiative_blocked',
+                summary=f'Initiative {initiative_id} blocked because the merger blocker changed out of the repairable passback scope.',
+                queue_item=queue_item,
+                result=result,
+                blocked_reason=remediation['halted']['detail'],
+            )
             save_json(initiative_state_path, initiative_state)
             return False
 
