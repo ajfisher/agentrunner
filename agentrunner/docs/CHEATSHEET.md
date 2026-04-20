@@ -170,6 +170,23 @@ python3 agentrunner/scripts/operator_cli.py watch --project agentrunner --count 
 
 ---
 
+## Initiative status message smoke check
+
+```bash
+python3 scripts/smoke_initiative_status_messages.py
+```
+
+Use this when you want a tiny fixture-driven proof that the initiative status-message adapter still:
+- creates the first message
+- updates the same message in place
+- finalizes the same handle
+- tolerates delivery failure without losing the persisted handle
+
+See also:
+- `agentrunner/docs/INITIATIVE_STATUS_MESSAGES.md`
+- `scripts/test_initiative_status_discord_adapter.py`
+- `scripts/test_initiative_status_lifecycle_wiring.py`
+
 ## Related tools
 
 ### Recent event history (`tick_tailer.py`)

@@ -72,6 +72,8 @@ Adapter semantics:
 - `finalize` should write the terminal initiative state, preserve the final handle/delivery metadata, and mark `delivery.finalizedAt`
 - adapter failures must be non-fatal to initiative execution; record them in `delivery.lastError` / history instead of corrupting mechanics state
 
+For a narrative description of the lifecycle boundaries, v1 Discord routing/config shape, and the smoke harness that exercises create/update/finalize plus failure-tolerant delivery, see `agentrunner/docs/INITIATIVE_STATUS_MESSAGES.md`.
+
 Queue events are the source of truth; `queue.json` is a convenience view.
 `operator_status.json` is also derivative: it is a blessed summary artifact for operator surfaces, not an authority for scheduling, enqueueing, or completion.
 

@@ -123,6 +123,8 @@ Design contract:
 
 This keeps the core contract portable for Discord-first delivery now and Telegram/Slack-style adapters later.
 
+For the detailed lifecycle matrix, v1 Discord target shape, and the fixture-driven smoke harness, see `agentrunner/docs/INITIATIVE_STATUS_MESSAGES.md`.
+
 ## Operator-facing Discord summaries
 
 Human-visible Discord messages are **not** the source of truth.
