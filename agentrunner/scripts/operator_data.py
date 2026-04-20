@@ -50,6 +50,26 @@ class OperatorSnapshotRead:
     notes: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class OperatorScreenSection:
+    """Stable screen section for operator-facing adapters like the TUI."""
+
+    title: str
+    lines: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class OperatorScreenView:
+    """Importable view-model assembled strictly from the canonical snapshot/read model."""
+
+    project: str
+    mode_line: str
+    status_line: str
+    updated_line: str
+    notes: tuple[str, ...]
+    sections: tuple[OperatorScreenSection, ...]
+
+
 def snapshot_contract(artifact: dict[str, Any]) -> dict[str, Any]:
     return artifact.get("contract") if isinstance(artifact.get("contract"), dict) else {}
 
@@ -121,6 +141,87 @@ def snapshot_warnings(artifact: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(warnings, list):
         return []
     return [warning for warning in warnings if isinstance(warning, dict)]
+
+
+def build_operator_screen_view(
+    project: str,
+    resolved: OperatorSnapshotRead,
+    *,
+    queue_preview: int = 5,
+) -> OperatorScreenView:
+    """Map the canonical snapshot/read-model into stable operator screen sections."""
+    snapshot = resolved.artifact or {}
+    current = snapshot_current(snapshot)
+    initiative = snapshot_initiative(snapshot)
+    last_completed = snapshot_last_completed(snapshot)
+    warnings = snapshot_warnings(snapshot)
+    result_hint_value = snapshot_result_hint(snapshot)
+
+    queue = snapshot_queue(snapshot)
+    next_ids = queue.get("nextIds") if isinstance(queue.get("nextIds"), list) else []
+    queue_lines = [f"depth: {queue.get('depth', 0)}"]
+    queue_lines.append(f"next ids: {', '.join(str(item) for item in next_ids) if next_ids else '(empty)'}")
+    preview = snapshot_queue_preview(snapshot, queue_preview=queue_preview)
+    if preview:
+        queue_lines.append('preview:')
+        for item in preview:
+            queue_lines.append(
+                f"  - {item.get('queueItemId', '-')} [{item.get('role', '-')}] {item.get('branch', '-') or '-'}"
+            )
+    else:
+        queue_lines.append('preview: (empty)')
+
+    current_lines = (
+        (
+            f"queue item: {current.get('queueItemId', '-')}",
+            f"role: {current.get('role', '-')}",
+            f"branch: {current.get('branch', '-')}",
+            f"started: {current.get('startedAt', '-')}",
+            f"age seconds: {current.get('ageSeconds', '-')}",
+        )
+        if current
+        else ('none',)
+    )
+    initiative_lines = (
+        (
+            f"id: {initiative.get('initiativeId', '-')}",
+            f"phase: {initiative.get('phase', '-')}",
+            f"subtask: {initiative.get('currentSubtaskId', '-')}",
+        )
+        if initiative
+        else ('none',)
+    )
+    last_completed_lines = (
+        (
+            f"queue item: {last_completed.get('queueItemId', '-')}",
+            f"role: {last_completed.get('role', '-')}",
+            f"status: {last_completed.get('status', '-')}",
+            f"summary: {last_completed.get('summary', '-')}",
+        )
+        if last_completed
+        else ('none',)
+    )
+    warning_lines = tuple(
+        f"{warning.get('severity', 'info')}:{warning.get('code', 'unknown')} {warning.get('summary', '')}".rstrip()
+        for warning in warnings
+    ) or ('none',)
+    result_hint_lines = (result_hint_value,) if result_hint_value else ('none',)
+
+    return OperatorScreenView(
+        project=project,
+        mode_line='mode: local read-only operator surface over the canonical snapshot',
+        status_line=f"status: {str(snapshot_status(snapshot) or 'unknown').upper()}",
+        updated_line=f"updated: {snapshot_updated_at(snapshot) or 'unknown'}",
+        notes=tuple(resolved.notes),
+        sections=(
+            OperatorScreenSection(title='current', lines=current_lines),
+            OperatorScreenSection(title='queue', lines=tuple(queue_lines)),
+            OperatorScreenSection(title='initiative', lines=initiative_lines),
+            OperatorScreenSection(title='last completed', lines=last_completed_lines),
+            OperatorScreenSection(title='warnings', lines=warning_lines),
+            OperatorScreenSection(title='result hint', lines=result_hint_lines),
+        ),
+    )
 
 
 def iso_now() -> str:

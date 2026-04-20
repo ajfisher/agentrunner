@@ -22,97 +22,24 @@ from agentrunner.scripts import operator_data
 
 
 def _lines_for_snapshot(project: str, resolved: operator_data.OperatorSnapshotRead) -> list[str]:
-    snapshot = resolved.artifact or {}
-    queue = operator_data.snapshot_queue(snapshot)
-    initiative = operator_data.snapshot_initiative(snapshot)
-    current = operator_data.snapshot_current(snapshot)
-    last_completed = operator_data.snapshot_last_completed(snapshot)
-    warnings = operator_data.snapshot_warnings(snapshot)
-    result_hint = operator_data.snapshot_result_hint(snapshot)
+    view = operator_data.build_operator_screen_view(project, resolved, queue_preview=5)
 
     lines = [
-        f"AgentRunner TUI · project={project}",
-        "mode: local read-only operator surface over the canonical snapshot",
-        f"status: {operator_data.snapshot_status(snapshot).upper()}",
-        f"updated: {snapshot.get('updatedAt', 'unknown')}",
+        f"AgentRunner TUI · project={view.project}",
+        view.mode_line,
+        view.status_line,
+        view.updated_line,
     ]
 
-    if resolved.notes:
+    if view.notes:
         lines.append("")
         lines.append("notes:")
-        lines.extend(f"- {note}" for note in resolved.notes)
+        lines.extend(f"- {note}" for note in view.notes)
 
-    lines.append("")
-    lines.append("current:")
-    if current:
-        lines.extend(
-            [
-                f"- queue item: {current.get('queueItemId', '-')}",
-                f"- role: {current.get('role', '-')}",
-                f"- branch: {current.get('branch', '-')}",
-                f"- started: {current.get('startedAt', '-')}",
-                f"- age seconds: {current.get('ageSeconds', '-')}",
-            ]
-        )
-    else:
-        lines.append("- none")
-
-    lines.append("")
-    lines.append("queue:")
-    lines.append(f"- depth: {queue.get('depth', 0)}")
-    next_ids = queue.get('nextIds') or []
-    preview = queue.get('preview') or []
-    lines.append(f"- next ids: {', '.join(next_ids) if next_ids else '(empty)'}")
-    if preview:
-        lines.append("- preview:")
-        for item in preview[:5]:
-            lines.append(
-                f"  - {item.get('id', '-')} [{item.get('role', '-')}] {item.get('branch', '-') or '-'}"
-            )
-
-    lines.append("")
-    lines.append("initiative:")
-    if initiative:
-        lines.extend(
-            [
-                f"- id: {initiative.get('initiativeId', '-')}",
-                f"- phase: {initiative.get('phase', '-')}",
-                f"- subtask: {initiative.get('currentSubtaskId', '-')}",
-            ]
-        )
-    else:
-        lines.append("- none")
-
-    lines.append("")
-    lines.append("last completed:")
-    if last_completed:
-        lines.extend(
-            [
-                f"- queue item: {last_completed.get('queueItemId', '-')}",
-                f"- role: {last_completed.get('role', '-')}",
-                f"- status: {last_completed.get('status', '-')}",
-                f"- summary: {last_completed.get('summary', '-')}",
-            ]
-        )
-    else:
-        lines.append("- none")
-
-    lines.append("")
-    lines.append("warnings:")
-    if warnings:
-        for warning in warnings:
-            lines.append(
-                f"- {warning.get('severity', 'info')}:{warning.get('code', 'unknown')} {warning.get('summary', '')}".rstrip()
-            )
-    else:
-        lines.append("- none")
-
-    lines.append("")
-    lines.append("result hint:")
-    if result_hint:
-        lines.append(f"- {result_hint}")
-    else:
-        lines.append("- none")
+    for section in view.sections:
+        lines.append("")
+        lines.append(f"{section.title}:")
+        lines.extend(f"- {line}" for line in section.lines)
 
     lines.append("")
     lines.append("controls: Ctrl-C quit | read-only surface (no queue/state mutation actions)")
