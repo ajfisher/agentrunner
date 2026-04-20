@@ -33,10 +33,17 @@ Then a browser-based UI may consume:
 
 - `GET /v1/operator/snapshot?project=<project>`
 - `HEAD /v1/operator/snapshot?project=<project>`
+- `GET /operator?project=<project>` as the thin HTML renderer over that same local snapshot contract
+
+Today that HTML surface is intentionally simple:
+- loopback-bound by default because it rides on the same local API server
+- auto-refreshing in-browser on a short timer (currently 5s) by polling the canonical snapshot endpoint again
+- explicitly read-only, with no control or mutation affordances added in the page layer
 
 This keeps the launch path explicit and narrow:
 - reuse the existing routed API entrypoint
 - keep the HTTP surface loopback-bound by default
+- make the browser refresh model obvious: local polling against the canonical snapshot, not websocket state or a second runtime
 - avoid implying queue/state mutation capabilities
 - avoid implying public hosting by default
 - avoid creating a second mechanics/runtime authority just for a browser view
@@ -46,6 +53,7 @@ This keeps the launch path explicit and narrow:
 The web UI must:
 - read from the canonical operator snapshot contract
 - remain localhost-oriented by default
+- use a local read-only polling model for refreshes rather than inventing a second push/runtime authority
 - remain safe to ignore/remove without affecting mechanics
 - preserve the same named snapshot fields other operator adapters use
 
@@ -105,3 +113,25 @@ A minimal browser UI is expected to be a thin renderer over the existing local A
 - updated timestamp
 
 That is intentionally a visibility surface, not an action surface.
+
+## Local refresh / smoke expectations
+
+The intended first-run/operator proof is deliberately small and local:
+
+1. Start the loopback-only API surface:
+   - `python3 -m agentrunner api --host 127.0.0.1 --port 8765`
+2. Open the browser page:
+   - `http://127.0.0.1:8765/operator?project=<project>`
+3. Confirm the page clearly presents current status, queue, initiative, warnings, reconciliation, and update recency.
+4. Wait one polling interval and confirm the refresh banner/status text updates, proving the browser view is auto-refreshing against the same canonical snapshot contract.
+5. Optionally cross-check the raw JSON contract:
+   - `curl 'http://127.0.0.1:8765/v1/operator/snapshot?project=<project>'`
+
+That smoke path is intentionally local-first and read-only:
+- no browser-side write actions are expected or required
+- no live mechanics mutation is needed to validate the presentation/refresh loop
+- the browser proof is successful if the HTML surface refreshes itself from the canonical snapshot and continues to mirror the same named fields as the JSON endpoint
+
+For fixture-only proofs without a running API server, render static HTML and inspect the resulting file:
+- `python3 agentrunner/scripts/operator_web.py --smoke-sample > /tmp/operator.html`
+- open `/tmp/operator.html` locally to validate the refreshed status presentation layout in isolation

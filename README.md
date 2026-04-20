@@ -131,6 +131,7 @@ Proof-check bootstrap for a clean checkout:
 Rule of thumb:
 - reach for `python3 -m agentrunner status|queue|initiatives|watch --project <project>` first
 - use `python3 -m agentrunner api --host 127.0.0.1 --port 8765` when you want a tiny optional local read-only HTTP adapter over the canonical operator snapshot (JSON at `/v1/operator/snapshot?project=<project>`, HTML at `/operator?project=<project>`)
+- the browser page at `/operator?project=<project>` is intentionally a thin local read-only renderer that auto-refreshes by polling that same snapshot every 5 seconds; it is meant for colocated operator visibility, not as a second runtime or a write/control surface
 - use `python3 -m agentrunner tui --project <project>` when you want a local terminal surface that keeps re-rendering the same canonical read model without adding any write/control affordances
 - for a browser-facing UI, attach to that existing local API entrypoint rather than inventing a second control/runtime surface; the bounded contract is documented in `agentrunner/docs/OPERATOR_WEB_UI.md`
 - keep the API on loopback unless you are intentionally placing another authenticated/local transport in front of it; the intended default is machine-facing localhost use, not a public/operator write surface
@@ -172,6 +173,12 @@ The browser page is intentionally thin and read-only:
 For smoke proofs without a running local API or live mechanics files, render HTML directly from a fixture or built-in sample:
 - `python3 agentrunner/scripts/operator_web.py --smoke-sample > /tmp/operator.html`
 - `python3 agentrunner/scripts/operator_web.py --snapshot-file /path/to/envelope.json --output /tmp/operator.html`
+- open `/tmp/operator.html` in a browser to verify the refreshed status presentation layout without any live mechanics/API dependency
+
+For a local end-to-end smoke on the intended attach path:
+- start the loopback-only API: `python3 -m agentrunner api --host 127.0.0.1 --port 8765`
+- open `http://127.0.0.1:8765/operator?project=<project>`
+- verify the page advertises auto-refresh, updates its refresh-status line after the first polling cycle, and stays read-only while reflecting the same canonical snapshot fields exposed at `/v1/operator/snapshot?project=<project>`
 
 This same localhost-only API is the chosen attach surface for the optional browser UI. The UI is expected to be a thin read-only renderer over the canonical snapshot payload, not a queue/state mutation path and not a public hosting default.
 
