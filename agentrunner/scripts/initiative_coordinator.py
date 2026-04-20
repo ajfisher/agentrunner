@@ -617,6 +617,9 @@ def maybe_advance(state_dir: str) -> bool:
     if queue_item.get('role') == 'merger' and initiative_state.get('phase') == 'closure-merger' and result.get('status') == 'blocked':
         blocker = merger_result_blocker(result)
         if blocker is not None:
+            initiative_id = initiative.get('initiativeId')
+            if not isinstance(initiative_id, str) or not initiative_id.strip():
+                return False
             remediation = initiative_state.get('remediation') if isinstance(initiative_state.get('remediation'), dict) else {}
             remediation['halted'] = {
                 'at': iso_now(),
