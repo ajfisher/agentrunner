@@ -86,6 +86,21 @@ Compatibility and limitation notes:
 - `status.py` and `tick_tailer.py` are intentionally lower-level rebuild/debug/history helpers, not alternate primary operator surfaces
 - `api` is the optional machine-facing localhost JSON adapter over the canonical operator snapshot; it is read-only and should not be treated as an internet-facing control plane
 
+## Operator adapter stack
+
+Operator-facing surfaces should all sit on the same side of the contract boundary:
+
+- mechanics-owned truth: `state.json`, `queue.json`, `queue_events.ndjson`, `ticks.ndjson`, result/handoff artifacts
+- canonical derivative snapshot: `operator_status.json`
+- shared read model: `agentrunner/scripts/operator_data.py`
+- downstream adapters: text CLI, optional localhost API, optional local TUI, optional MQTT broadcast, and any future web/dashboard surface
+
+Design intent:
+- operator adapters read the shared snapshot/read model instead of reconstructing mechanics state ad hoc
+- adapters stay read-only unless a later contract explicitly introduces a separate control plane
+- the optional TUI/web/API surfaces must not become mechanics prerequisites; dispatch/completion/recovery still work without them
+- UI work should preserve the same named operator fields (`status`, `current`, `queue`, `initiative`, `lastCompleted`, `warnings`, `reconciliation`, `updatedAt`) so humans and machines keep seeing the same contract through different lenses
+
 ## Operator-facing Discord summaries
 
 Human-visible Discord messages are **not** the source of truth.

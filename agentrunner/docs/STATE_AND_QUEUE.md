@@ -159,11 +159,19 @@ Canonical launch shape:
 - `python3 -m agentrunner tui --project <project>`
 - direct implementation path: `python3 -m agentrunner.scripts.operator_tui --project <project>` is acceptable for local debugging, but the top-level routed form is the canonical operator contract
 
+Position in the operator stack:
+- mechanics truth remains the runtime files under `~/.agentrunner/projects/<project>/`
+- `operator_status.json` remains the blessed derivative snapshot
+- `operator_data.py` remains the shared read model and accessor layer
+- the TUI is one consumer of that shared contract, alongside the text CLI, localhost API, optional MQTT broadcast, and any future web/dashboard surface
+
 Boundaries:
 - local terminal only
 - read-only over the canonical operator snapshot/read model (`operator_status.json` via `operator_data.py`)
 - no queue/state mutation controls, approvals, retries, or enqueue affordances
 - bounded runtime choice for this first slice: stdlib-only redraw loop rather than a heavyweight TUI framework/runtime commitment
+- optional dependency posture: no extra TUI package is required; the intended baseline is stdlib-only Python. If interactive `curses` support is unavailable on a host, `--once` and `--text-watch` remain valid proof/debug fallbacks.
+- not part of the mechanics critical path: dispatch, completion detection, and recovery must continue to work without the TUI installed or running
 
 Expected visible sections for the first slice:
 - project/status header
@@ -174,6 +182,7 @@ Expected visible sections for the first slice:
 
 Smoke/proof-friendly mode:
 - `python3 -m agentrunner tui --project <project> --once`
+- `python3 scripts/test_operator_tui.py` for fixture-driven render/launch proof coverage without live mechanics reads
 
 The TUI should be treated as another adapter over the blessed snapshot contract, alongside the text CLI, local API, and optional MQTT broadcast. It must not bypass those contracts by performing raw mechanics-file archaeology on its own.
 

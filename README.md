@@ -168,14 +168,24 @@ When a human operator wants a richer terminal view than the plain `status`/`queu
 python3 -m agentrunner tui --project picv_spike
 ```
 
+Where it sits in the operator stack:
+- mechanics-owned truth still lives in `state.json`, `queue.json`, `queue_events.ndjson`, `ticks.ndjson`, and result artifacts
+- `operator_status.json` remains the blessed derivative snapshot built from that truth
+- `agentrunner/scripts/operator_data.py` is the shared read model all operator adapters should consume first
+- the text CLI, localhost API, optional MQTT broadcast, future web views, and this TUI are all adapters over that same operator contract
+- the TUI is therefore a local human-facing lens, not a second runtime, controller, or source of truth
+
 Current bounded contract:
 - local terminal surface only; it is not a daemon, web app, or new mechanics authority
 - read-only over the canonical `operator_status.json` snapshot via `agentrunner/scripts/operator_data.py`
 - no queue mutation, retry, approve, or control actions; it is visibility-only by design
 - framework/runtime choice for this first slice is intentionally conservative: stdlib-only terminal redraws instead of introducing a heavyweight TUI stack before the operator contract settles
+- install/dependency expectation is intentionally light: no extra TUI package is required beyond the normal Python runtime; if a platform lacks `curses`, use `--once` or `--text-watch` as the fallback proof/debug path
+- because it is optional and adapter-only, it is not part of the mechanics critical path for dispatch, completion, or recovery
 
 Useful smoke/debug variants:
 - single render for proofs/tests: `python3 -m agentrunner tui --project picv_spike --once`
+- fixture-driven proof path with no live mechanics reads: `python3 scripts/test_operator_tui.py`
 - explicit bounded rebuild fallback: `python3 -m agentrunner tui --project picv_spike --rebuild-missing --write-rebuild`
 
 This keeps the TUI as an optional fourth operator surface after the shared data layer, the text CLI, and the localhost JSON API.
