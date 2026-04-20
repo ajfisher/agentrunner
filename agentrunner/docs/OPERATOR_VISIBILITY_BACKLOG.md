@@ -152,6 +152,12 @@ The operator contract should say this plainly: `queue.json` is a materialized vi
 ### 5) Optional TUI
 Once the canonical status artifact exists, a terminal UI becomes straightforward.
 
+Current bounded contract direction:
+- canonical launch shape: `python3 -m agentrunner tui --project <project>`
+- local-only and read-only over the canonical operator snapshot/read model
+- no queue mutation, retry, approval, or control affordances
+- first runtime choice should stay conservative (stdlib redraw loop or equivalently bounded local framework), so the operator contract settles before a heavier TUI stack does
+
 Potential layout:
 - project list
 - active item / role / branch

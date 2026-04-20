@@ -37,6 +37,7 @@ This is the canonical operator CLI entrypoint. It should summarize active/idle s
 Relationship between the operator helpers:
 - `operator_cli.py` = default operator surface for readable present-tense status/queue/initiative views, now consuming named snapshot accessors from `operator_data.py` rather than peeking through the raw artifact dict ad hoc
 - `operator_api.py` = tiny stdlib read-only HTTP adapter for downstream local tools that want JSON instead of terminal formatting
+- `operator_tui.py` = optional local read-only terminal surface that keeps re-rendering the same canonical snapshot/read model; it is visibility-only and adds no write/control authority
 - `operator_status.json` = blessed derivative artifact consumed by operator surfaces first
 - `status.py` = explicit rebuild/debug helper for refreshing the artifact from mechanics truth when an operator asks for it
 - `tick_tailer.py` = recent-history companion for validated tick activity, not the default current-status path
@@ -149,6 +150,32 @@ Intended role:
 - read-only adapter over `operator_status.json`
 - convenience layer for local dashboards, scripts, TUIs, or other automation on the same host
 - not an authority for queue mutation, dispatch, completion, or artifact rebuilding
+
+## Optional local operator TUI contract
+
+The optional TUI exists for operators who want a richer local terminal view than the plain `status` / `queue` text without introducing a second authority or always-on dashboard process.
+
+Canonical launch shape:
+- `python3 -m agentrunner tui --project <project>`
+- direct implementation path: `python3 -m agentrunner.scripts.operator_tui --project <project>` is acceptable for local debugging, but the top-level routed form is the canonical operator contract
+
+Boundaries:
+- local terminal only
+- read-only over the canonical operator snapshot/read model (`operator_status.json` via `operator_data.py`)
+- no queue/state mutation controls, approvals, retries, or enqueue affordances
+- bounded runtime choice for this first slice: stdlib-only redraw loop rather than a heavyweight TUI framework/runtime commitment
+
+Expected visible sections for the first slice:
+- project/status header
+- current item summary
+- queue depth/preview
+- initiative summary
+- warnings/result hints
+
+Smoke/proof-friendly mode:
+- `python3 -m agentrunner tui --project <project> --once`
+
+The TUI should be treated as another adapter over the blessed snapshot contract, alongside the text CLI, local API, and optional MQTT broadcast. It must not bypass those contracts by performing raw mechanics-file archaeology on its own.
 
 Usage expectations:
 - prefer loopback binding (`--host 127.0.0.1`), which is also the default

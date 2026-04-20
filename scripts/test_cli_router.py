@@ -126,10 +126,48 @@ def test_console_script_works_after_install_from_checkout() -> None:
         assert 'status: IDLE' in result.stdout
 
 
+def test_module_router_delegates_tui_from_checkout() -> None:
+    with tempfile.TemporaryDirectory(prefix='agentrunner-cli-router-tui-') as tmp:
+        state_dir = Path(tmp)
+        write_json(state_dir / 'operator_status.json', {
+            'project': 'demo',
+            'status': 'blocked',
+            'updatedAt': '2026-04-20T00:00:00Z',
+            'current': {
+                'queueItemId': 'developer-tui',
+                'role': 'developer',
+                'branch': 'feature/agentrunner/operator-tui',
+                'startedAt': '2026-04-20T00:00:00Z',
+                'ageSeconds': 20,
+            },
+            'queue': {'depth': 1, 'nextIds': ['reviewer-tui'], 'preview': []},
+            'initiative': {
+                'initiativeId': 'agentrunner-operator-tui',
+                'phase': 'implementation',
+                'currentSubtaskId': 'operator-tui-contract-and-entrypoint',
+            },
+            'lastCompleted': None,
+            'resultHint': 'Waiting for developer result artifact.',
+            'warnings': [
+                {'code': 'stale_run', 'severity': 'warning', 'summary': 'Active run is stale.'},
+            ],
+        })
+
+        result = run_module('tui', '--once', '--state-dir', str(state_dir), '--project', 'demo')
+
+        assert result.returncode == 0, result.stderr
+        assert result.stderr == ''
+        assert 'AgentRunner TUI · project=demo' in result.stdout
+        assert 'mode: local read-only operator surface over the canonical snapshot' in result.stdout
+        assert 'feature/agentrunner/operator-tui' in result.stdout
+        assert 'warning:stale_run Active run is stale.' in result.stdout
+
+
 def main() -> int:
     test_module_router_delegates_status_from_checkout()
     test_module_router_strips_optional_passthrough_separator()
     test_console_script_works_after_install_from_checkout()
+    test_module_router_delegates_tui_from_checkout()
     print('ok: top-level router works from checkout and installed console entrypoint')
     return 0
 

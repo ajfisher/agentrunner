@@ -72,6 +72,7 @@ Implemented commands today:
 - `python3 -m agentrunner initiatives`
 - `python3 -m agentrunner watch`
 - `python3 -m agentrunner api`
+- `python3 -m agentrunner tui`
 
 Important limitation today:
 - the routing contract is real and implemented now
@@ -81,6 +82,8 @@ Important limitation today:
 Routing contract:
 - `brief` delegates to `agentrunner/scripts/enqueue_initiative.py` via `enqueue_initiative.main(argv)`
 - `status|queue|initiatives|watch` delegate to `agentrunner/scripts/operator_cli.py` via `operator_cli.main([subcommand, *argv])`
+- `api` delegates to `agentrunner/scripts/operator_api.py` via `operator_api.main(argv)`
+- `tui` delegates to `agentrunner/scripts/operator_tui.py` via `operator_tui.main(argv)`
 - passthrough args are forwarded unchanged after the top-level subcommand; an optional `--` separator is accepted and stripped by the router before delegation
 - routed commands intentionally preserve the underlying script exit codes instead of inventing new router-specific semantics
 
@@ -127,7 +130,9 @@ Proof-check bootstrap for a clean checkout:
 Rule of thumb:
 - reach for `python3 -m agentrunner status|queue|initiatives|watch --project <project>` first
 - use `python3 -m agentrunner api --host 127.0.0.1 --port 8765` when you want a tiny optional local read-only HTTP JSON adapter over the canonical operator snapshot
+- use `python3 -m agentrunner tui --project <project>` when you want a local terminal surface that keeps re-rendering the same canonical read model without adding any write/control affordances
 - keep the API on loopback unless you are intentionally placing another authenticated/local transport in front of it; the intended default is machine-facing localhost use, not a public/operator write surface
+- the TUI is intentionally local and optional; today it is a small stdlib-only redraw loop over `operator_data`, not a second runtime, daemon, or operator authority
 - use `python3 agentrunner/scripts/operator_cli.py ...` when you need the direct compatibility path or are debugging the router/delegation layer
 - use `status.py` only for recovery/debugging or when you intentionally want to refresh `operator_status.json`
 - use `tick_tailer.py` when you want a compact validated event timeline instead of the current snapshot
@@ -154,6 +159,26 @@ Current endpoint:
 - `GET /v1/operator/snapshot?project=<project>`
 - `HEAD /v1/operator/snapshot?project=<project>`
 - write methods are rejected with `405 method_not_allowed`
+
+### Optional local operator TUI
+
+When a human operator wants a richer terminal view than the plain `status`/`queue` text, use:
+
+```bash
+python3 -m agentrunner tui --project picv_spike
+```
+
+Current bounded contract:
+- local terminal surface only; it is not a daemon, web app, or new mechanics authority
+- read-only over the canonical `operator_status.json` snapshot via `agentrunner/scripts/operator_data.py`
+- no queue mutation, retry, approve, or control actions; it is visibility-only by design
+- framework/runtime choice for this first slice is intentionally conservative: stdlib-only terminal redraws instead of introducing a heavyweight TUI stack before the operator contract settles
+
+Useful smoke/debug variants:
+- single render for proofs/tests: `python3 -m agentrunner tui --project picv_spike --once`
+- explicit bounded rebuild fallback: `python3 -m agentrunner tui --project picv_spike --rebuild-missing --write-rebuild`
+
+This keeps the TUI as an optional fourth operator surface after the shared data layer, the text CLI, and the localhost JSON API.
 
 For downstream MQTT dashboard/broker integration, see `agentrunner/docs/OPERATOR_MQTT_BROADCAST.md`.
 That contract is intentionally disabled by default and keeps MQTT as a read-only broadcast of canonical operator state rather than a control plane.
