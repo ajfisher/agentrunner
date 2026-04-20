@@ -73,11 +73,19 @@ def test_page_model_is_derived_from_canonical_snapshot_contract() -> None:
     assert payload['artifactPath'].endswith('/tmp/demo/operator_status.json')
     assert payload['modeLine'] == 'Mode: browser renderer over canonical /v1/operator/snapshot'
     assert payload['statusLine'] == 'Status: active'
+    assert payload['statusSummary'] == 'Active — developer is working on developer-1 with 2 more queued.'
+    assert payload['updatedSummary'].startswith('Snapshot recency: ')
+    assert [chip['label'] for chip in payload['chips'][:3]] == [
+        'overall active',
+        'running · queue depth 2',
+        '1 warning',
+    ]
+    assert payload['chips'][0]['tone'] == 'good'
     titles = [section['title'] for section in payload['sections']]
     assert titles == ['current', 'queue', 'initiative', 'last completed', 'warnings', 'reconciliation']
     queue_lines = next(section['lines'] for section in payload['sections'] if section['title'] == 'queue')
-    assert 'Depth: 2' in queue_lines
-    assert 'Next: reviewer-1, manager-1' in queue_lines
+    assert '2 items are waiting in the queue.' in queue_lines
+    assert 'Coming up next: reviewer-1, manager-1' in queue_lines
 
 
 def test_renderer_requires_the_canonical_snapshot_fields() -> None:
@@ -96,7 +104,9 @@ def test_rendered_html_mentions_the_api_contract_not_a_second_runtime() -> None:
     html = operator_web.render_html_from_snapshot_envelope(sample_envelope())
     assert 'AgentRunner operator · demo' in html
     assert '/v1/operator/snapshot' in html
-    assert 'developer-1 | developer | feature/agentrunner/operator-web-ui | age=42s' in html
+    assert 'Active — developer is working on developer-1 with 2 more queued.' in html
+    assert 'overall active' in html
+    assert 'running · queue depth 2' in html
     assert 'read-only browser renderer' in html
     assert 'data-refresh-ms="5000"' in html
     assert 'window.setInterval(refreshSnapshot, refreshMs);' in html
@@ -111,6 +121,17 @@ def test_initial_page_model_json_is_safe_against_script_breakout() -> None:
     assert '\\u003c/script\\u003e\\u003cscript\\u003ealert(1)\\u003c/script\\u003e' in html
     assert 'alert(1)' in html
     assert 'const initialPageModel = {' in html
+
+
+def test_unavailable_renderer_uses_degraded_status_chips() -> None:
+    html = operator_web.render_unavailable_html(
+        project='demo',
+        artifact_path='/tmp/demo/operator_status.json',
+        notes=('No canonical snapshot is available yet.',),
+    )
+    assert 'Snapshot unavailable — the browser surface cannot confidently describe current mechanics state yet.' in html
+    assert 'overall snapshot unavailable' in html
+    assert 'Canonical operator snapshot is missing or malformed' in html
 
 
 def test_cli_supports_fixture_and_built_in_smoke_render_paths() -> None:
@@ -174,10 +195,11 @@ def main() -> int:
     test_renderer_requires_the_canonical_snapshot_fields()
     test_rendered_html_mentions_the_api_contract_not_a_second_runtime()
     test_initial_page_model_json_is_safe_against_script_breakout()
+    test_unavailable_renderer_uses_degraded_status_chips()
     test_cli_supports_fixture_and_built_in_smoke_render_paths()
     test_top_level_cli_uses_api_as_the_launch_path_for_browser_work()
     test_top_level_cli_no_longer_exposes_web_command()
-    print('ok: browser viewmodel/html seam renders canonical operator snapshots, supports fixture/sample smoke paths, proves the api launch path, and still avoids a separate web runtime')
+    print('ok: browser viewmodel/html seam renders canonical operator snapshots with compact status chips and clearer human summaries while staying on the api-first read-only path')
     return 0
 
 
