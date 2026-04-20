@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -98,6 +100,35 @@ def test_rendered_html_mentions_the_api_contract_not_a_second_runtime() -> None:
     assert 'read-only browser renderer' in html
 
 
+def test_cli_supports_fixture_and_built_in_smoke_render_paths() -> None:
+    with tempfile.TemporaryDirectory(prefix='operator-web-') as tmp:
+        tmp_path = Path(tmp)
+        fixture_path = tmp_path / 'snapshot.json'
+        output_path = tmp_path / 'operator.html'
+        fixture_path.write_text(json.dumps(sample_envelope(), indent=2) + '\n', encoding='utf-8')
+
+        fixture_proc = subprocess.run(
+            [sys.executable, str(ROOT), '--snapshot-file', str(fixture_path), '--output', str(output_path)],
+            cwd=str(REPO_ROOT),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert fixture_proc.returncode == 0, fixture_proc.stderr
+        assert 'AgentRunner operator · demo' in output_path.read_text(encoding='utf-8')
+
+        smoke_proc = subprocess.run(
+            [sys.executable, str(ROOT), '--smoke-sample'],
+            cwd=str(REPO_ROOT),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert smoke_proc.returncode == 0, smoke_proc.stderr
+        assert 'AgentRunner operator · sample-project' in smoke_proc.stdout
+        assert 'no mechanics reads' in smoke_proc.stdout
+
+
 def test_top_level_cli_no_longer_exposes_web_command() -> None:
     proc = subprocess.run(
         [sys.executable, '-m', 'agentrunner', 'web'],
@@ -115,8 +146,9 @@ def main() -> int:
     test_page_model_is_derived_from_canonical_snapshot_contract()
     test_renderer_requires_the_canonical_snapshot_fields()
     test_rendered_html_mentions_the_api_contract_not_a_second_runtime()
+    test_cli_supports_fixture_and_built_in_smoke_render_paths()
     test_top_level_cli_no_longer_exposes_web_command()
-    print('ok: browser viewmodel/html seam renders from canonical snapshot envelopes and no longer exposes a separate web runtime')
+    print('ok: browser viewmodel/html seam renders canonical operator snapshots, supports fixture/sample smoke paths, and still avoids a separate web runtime')
     return 0
 
 

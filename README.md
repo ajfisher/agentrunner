@@ -130,7 +130,7 @@ Proof-check bootstrap for a clean checkout:
 
 Rule of thumb:
 - reach for `python3 -m agentrunner status|queue|initiatives|watch --project <project>` first
-- use `python3 -m agentrunner api --host 127.0.0.1 --port 8765` when you want a tiny optional local read-only HTTP JSON adapter over the canonical operator snapshot
+- use `python3 -m agentrunner api --host 127.0.0.1 --port 8765` when you want a tiny optional local read-only HTTP adapter over the canonical operator snapshot (JSON at `/v1/operator/snapshot?project=<project>`, HTML at `/operator?project=<project>`)
 - use `python3 -m agentrunner tui --project <project>` when you want a local terminal surface that keeps re-rendering the same canonical read model without adding any write/control affordances
 - for a browser-facing UI, attach to that existing local API entrypoint rather than inventing a second control/runtime surface; the bounded contract is documented in `agentrunner/docs/OPERATOR_WEB_UI.md`
 - keep the API on loopback unless you are intentionally placing another authenticated/local transport in front of it; the intended default is machine-facing localhost use, not a public/operator write surface
@@ -157,12 +157,23 @@ Local-use expectations:
 - treat it as an **optional localhost adapter** for colocated tools, not the main human operator interface
 - if you need remote access later, put an explicit authenticated transport/proxy in front of it rather than treating the raw server as an internet-facing API
 
-Current endpoint:
+Current endpoints:
 - `GET /v1/operator/snapshot?project=<project>`
 - `HEAD /v1/operator/snapshot?project=<project>`
+- `GET /operator?project=<project>`
+- `HEAD /operator?project=<project>`
 - write methods are rejected with `405 method_not_allowed`
 
-This same localhost-only endpoint is the chosen attach surface for any optional browser UI. The UI is expected to be a thin read-only renderer over the canonical snapshot payload, not a queue/state mutation path and not a public hosting default.
+The browser page is intentionally thin and read-only:
+- it renders the same canonical operator fields as the CLI/TUI surfaces (`status`, `current`, `queue`, `initiative`, `lastCompleted`, `warnings`, `reconciliation`, `updatedAt`)
+- it degrades clearly when the canonical snapshot is missing by returning a bounded HTML "snapshot unavailable" page instead of inventing fallback controls
+- it exposes no enqueue/retry/approve/write affordances or route handlers
+
+For smoke proofs without a running local API or live mechanics files, render HTML directly from a fixture or built-in sample:
+- `python3 agentrunner/scripts/operator_web.py --smoke-sample > /tmp/operator.html`
+- `python3 agentrunner/scripts/operator_web.py --snapshot-file /path/to/envelope.json --output /tmp/operator.html`
+
+This same localhost-only API is the chosen attach surface for the optional browser UI. The UI is expected to be a thin read-only renderer over the canonical snapshot payload, not a queue/state mutation path and not a public hosting default.
 
 ### Optional local operator TUI
 

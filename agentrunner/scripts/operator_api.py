@@ -17,8 +17,10 @@ from urllib.parse import parse_qs, urlparse
 
 try:
     from .operator_data import resolve_operator_snapshot
+    from .operator_web import render_html_from_snapshot_envelope, render_unavailable_html
 except ImportError:  # pragma: no cover - script-mode fallback
     from operator_data import resolve_operator_snapshot
+    from operator_web import render_html_from_snapshot_envelope, render_unavailable_html
 
 PROJECT_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 READ_ONLY_METHODS = {"GET", "HEAD"}
@@ -26,6 +28,10 @@ READ_ONLY_METHODS = {"GET", "HEAD"}
 
 def json_bytes(obj: dict[str, Any]) -> bytes:
     return (json.dumps(obj, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def html_bytes(text: str) -> bytes:
+    return text.encode("utf-8")
 
 
 def error_payload(*, status: int, code: str, message: str, details: Any = None) -> dict[str, Any]:
@@ -78,13 +84,13 @@ class OperatorApiHandler(BaseHTTPRequestHandler):
 
     def handle_read(self, *, head_only: bool = False) -> None:
         parsed = urlparse(self.path)
-        if parsed.path != "/v1/operator/snapshot":
+        if parsed.path not in {"/v1/operator/snapshot", "/operator"}:
             self.send_json(
                 HTTPStatus.NOT_FOUND,
                 error_payload(
                     status=HTTPStatus.NOT_FOUND,
                     code="not_found",
-                    message="Unknown endpoint. Use /v1/operator/snapshot?project=<project>.",
+                    message="Unknown endpoint. Use /v1/operator/snapshot?project=<project> or /operator?project=<project>.",
                 ),
                 head_only=head_only,
             )
@@ -142,6 +148,32 @@ class OperatorApiHandler(BaseHTTPRequestHandler):
             return
 
         snapshot = resolve_operator_snapshot(project=project)
+        if parsed.path == "/operator":
+            if snapshot.artifact is None:
+                self.send_html(
+                    HTTPStatus.NOT_FOUND,
+                    render_unavailable_html(
+                        project=project,
+                        artifact_path=str(snapshot.artifact_path),
+                        notes=snapshot.notes,
+                    ),
+                    head_only=head_only,
+                )
+                return
+            self.send_html(
+                HTTPStatus.OK,
+                render_html_from_snapshot_envelope(
+                    {
+                        "project": project,
+                        "artifactPath": str(snapshot.artifact_path),
+                        "notes": list(snapshot.notes),
+                        "snapshot": snapshot.artifact,
+                    }
+                ),
+                head_only=head_only,
+            )
+            return
+
         if snapshot.artifact is None:
             self.send_json(
                 HTTPStatus.NOT_FOUND,
@@ -181,6 +213,26 @@ class OperatorApiHandler(BaseHTTPRequestHandler):
         body = json_bytes(payload)
         self.send_response(int(status))
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        if headers:
+            for key, value in headers.items():
+                self.send_header(key, value)
+        self.end_headers()
+        if not head_only:
+            self.wfile.write(body)
+
+    def send_html(
+        self,
+        status: HTTPStatus | int,
+        html: str,
+        *,
+        headers: dict[str, str] | None = None,
+        head_only: bool = False,
+    ) -> None:
+        body = html_bytes(html)
+        self.send_response(int(status))
+        self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         if headers:

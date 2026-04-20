@@ -31,6 +31,17 @@ def fetch(url: str, *, method: str = 'GET') -> tuple[int, dict, dict[str, str]]:
         return exc.code, data, dict(exc.headers.items())
 
 
+def fetch_text(url: str, *, method: str = 'GET') -> tuple[int, str, dict[str, str]]:
+    req = urllib.request.Request(url, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            body = resp.read().decode('utf-8') if method != 'HEAD' else ''
+            return resp.status, body, dict(resp.headers.items())
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode('utf-8')
+        return exc.code, body, dict(exc.headers.items())
+
+
 def start_api(home: Path, *, port: int) -> subprocess.Popen[str]:
     env = dict(**__import__('os').environ)
     env['HOME'] = str(home)
@@ -98,6 +109,41 @@ def test_snapshot_happy_path(home: Path, *, port: int) -> None:
     assert data['snapshot']['updatedAt'] == '2026-04-19T00:00:00Z'
 
 
+def test_browser_surface_happy_path(home: Path, *, port: int) -> None:
+    state_dir = home / '.agentrunner/projects/demo'
+    write_json(state_dir / 'operator_status.json', {
+        'project': 'demo',
+        'status': 'active',
+        'current': {'queueItemId': 'developer-1', 'role': 'developer', 'branch': 'feature/demo', 'ageSeconds': 12},
+        'queue': {'depth': 1, 'nextIds': ['reviewer-1'], 'preview': [{'queueItemId': 'reviewer-1', 'role': 'reviewer', 'branch': 'feature/demo', 'goal': 'Review it'}]},
+        'initiative': {'initiativeId': 'demo-web-ui', 'phase': 'implementation', 'currentSubtaskId': 'minimal-browser-surface'},
+        'lastCompleted': {'queueItemId': 'architect-1', 'role': 'architect', 'status': 'ok', 'summary': 'Shaped the readonly page.'},
+        'warnings': [{'code': 'snapshot_stale', 'severity': 'warning', 'summary': 'Snapshot may lag slightly.'}],
+        'reconciliation': {'decision': 'active', 'summary': 'live state and snapshot agree', 'reasons': []},
+        'updatedAt': '2026-04-19T00:00:00Z',
+        'resultHint': None,
+    })
+
+    status, body, headers = fetch_text(f'http://127.0.0.1:{port}/operator?project=demo')
+    assert status == 200
+    assert headers.get('Content-Type', '').startswith('text/html')
+    assert 'AgentRunner operator · demo' in body
+    assert 'Snapshot may be stale relative to recent mechanics activity.' in body
+    assert 'developer-1 | developer | feature/demo | age=12s' in body
+    assert 'Review it' in body
+    assert 'approve' not in body.lower()
+    assert 'retry' not in body.lower()
+    assert 'enqueue' not in body.lower()
+
+
+def test_browser_surface_degrades_clearly_when_snapshot_is_missing(port: int) -> None:
+    status, body, headers = fetch_text(f'http://127.0.0.1:{port}/operator?project=missing')
+    assert status == 404
+    assert headers.get('Content-Type', '').startswith('text/html')
+    assert 'snapshot unavailable' in body.lower()
+    assert 'Canonical operator snapshot is missing or malformed' in body
+
+
 def test_missing_project_is_a_clear_400(port: int) -> None:
     status, data, _ = fetch(f'http://127.0.0.1:{port}/v1/operator/snapshot')
     assert status == 400
@@ -139,6 +185,8 @@ def main() -> int:
         try:
             wait_until_ready(port)
             test_snapshot_happy_path(home, port=port)
+            test_browser_surface_happy_path(home, port=port)
+            test_browser_surface_degrades_clearly_when_snapshot_is_missing(port)
             test_missing_project_is_a_clear_400(port)
             test_invalid_project_name_is_a_clear_400(port)
             test_missing_snapshot_is_a_clear_404(port)

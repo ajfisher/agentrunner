@@ -13,10 +13,23 @@ seam.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import html
+import sys
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
+
+try:
+    from . import operator_tui
+    from .operator_data import resolve_operator_snapshot
+except ImportError:  # pragma: no cover - script-mode fallback
+    script_root = Path(__file__).resolve().parents[2]
+    if str(script_root) not in sys.path:
+        sys.path.insert(0, str(script_root))
+    from agentrunner.scripts import operator_tui  # type: ignore
+    from agentrunner.scripts.operator_data import resolve_operator_snapshot  # type: ignore
 
 
 @dataclass(frozen=True)
@@ -34,6 +47,7 @@ class OperatorPageModel:
     updated_line: str
     notes: tuple[str, ...]
     sections: tuple[WebSection, ...]
+    banner_lines: tuple[str, ...] = ()
 
 
 REQUIRED_SNAPSHOT_FIELDS = (
@@ -175,6 +189,18 @@ def build_page_model_from_snapshot_envelope(envelope: dict[str, Any]) -> Operato
     project = str(payload.get("project") or snapshot.get("project") or "unknown-project")
     artifact_path = str(payload.get("artifactPath") or "")
     notes = tuple(str(item) for item in _as_list(payload.get("notes"), label="notes"))
+    warnings = _as_list(snapshot.get("warnings"), label="snapshot.warnings")
+    warning_codes = {
+        str(item.get("code"))
+        for item in warnings
+        if isinstance(item, dict) and item.get("code") is not None
+    }
+    banner_lines: list[str] = []
+    if any(code in warning_codes for code in {"stale_snapshot", "snapshot_stale"}):
+        banner_lines.append("Snapshot may be stale relative to recent mechanics activity.")
+    if snapshot.get("status") in {"missing", "snapshot-unavailable", "unknown"}:
+        banner_lines.append("Snapshot is not currently giving a confident operator answer.")
+
     sections = (
         WebSection(title="current", lines=(_line_current(snapshot),)),
         WebSection(title="queue", lines=_line_queue(snapshot)),
@@ -191,6 +217,7 @@ def build_page_model_from_snapshot_envelope(envelope: dict[str, Any]) -> Operato
         updated_line=f"Updated: {snapshot.get('updatedAt', 'unknown')}",
         notes=notes,
         sections=sections,
+        banner_lines=tuple(banner_lines),
     )
 
 
@@ -203,6 +230,7 @@ def page_model_payload(model: OperatorPageModel) -> dict[str, Any]:
         "updatedLine": model.updated_line,
         "notes": list(model.notes),
         "sections": [asdict(section) for section in model.sections],
+        "bannerLines": list(model.banner_lines),
     }
 
 
@@ -211,6 +239,7 @@ def render_html(model: OperatorPageModel) -> str:
         return html.escape(str(value), quote=True)
 
     note_items = "".join(f"<li>{esc(note)}</li>" for note in model.notes) or "<li>No snapshot notes.</li>"
+    banner_html = "".join(f"<div class=\"banner\">{esc(line)}</div>" for line in model.banner_lines)
     section_cards = []
     for section in model.sections:
         line_items = "".join(f"<li>{esc(line)}</li>" for line in section.lines) or "<li>none</li>"
@@ -236,6 +265,8 @@ def render_html(model: OperatorPageModel) -> str:
       --muted: #94a3b8;
       --accent: #38bdf8;
       --border: #334155;
+      --banner: #7c2d12;
+      --banner-border: #fb923c;
     }}
     * {{ box-sizing: border-box; }}
     body {{ margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; background: var(--bg); color: var(--text); }}
@@ -244,6 +275,7 @@ def render_html(model: OperatorPageModel) -> str:
     .meta {{ display: grid; gap: .35rem; color: var(--muted); }}
     .card-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }}
     .card {{ background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 1rem; }}
+    .banner {{ background: var(--banner); border: 1px solid var(--banner-border); border-radius: 12px; padding: .85rem 1rem; font-weight: 600; }}
     h1, h2 {{ margin: 0 0 .75rem 0; }}
     h1 {{ font-size: 1.25rem; }}
     h2 {{ font-size: 1rem; color: var(--accent); text-transform: capitalize; }}
@@ -264,6 +296,7 @@ def render_html(model: OperatorPageModel) -> str:
     </div>
   </header>
   <main>
+    {banner_html}
     <section class=\"card\">
       <h2>snapshot notes</h2>
       <ul>{note_items}</ul>
@@ -280,12 +313,129 @@ def render_html_from_snapshot_envelope(envelope: dict[str, Any]) -> str:
     return render_html(build_page_model_from_snapshot_envelope(envelope))
 
 
-def main(argv: list[str] | None = None) -> int:
-    del argv
-    raise SystemExit(
-        "The first browser slice does not run a separate 'agentrunner web' server. "
-        "Launch 'python3 -m agentrunner api --host 127.0.0.1 --port 8765' and render from /v1/operator/snapshot instead."
+def render_unavailable_html(*, project: str, artifact_path: str, notes: tuple[str, ...]) -> str:
+    model = OperatorPageModel(
+        project=project,
+        artifact_path=artifact_path,
+        mode_line="Mode: browser renderer over canonical /v1/operator/snapshot",
+        status_line="Status: snapshot unavailable",
+        updated_line="Updated: unavailable",
+        notes=notes or ("No canonical snapshot is available yet.",),
+        sections=(
+            WebSection(title="current", lines=("Current: unavailable",)),
+            WebSection(title="queue", lines=("Queue: unavailable",)),
+            WebSection(title="initiative", lines=("Initiative: unavailable",)),
+            WebSection(title="last completed", lines=("Last completed: unavailable",)),
+            WebSection(title="warnings", lines=("warning: canonical snapshot missing",)),
+            WebSection(title="reconciliation", lines=("Reconciliation: unavailable",)),
+        ),
+        banner_lines=("Canonical operator snapshot is missing or malformed; this page is showing a degraded read-only state.",),
     )
+    return render_html(model)
+
+
+def sample_snapshot_envelope() -> dict[str, Any]:
+    snapshot = dict(operator_tui.SAMPLE_SNAPSHOT)
+    snapshot.setdefault(
+        "reconciliation",
+        {
+            "decision": snapshot.get("status", "unknown"),
+            "summary": "sample readonly operator snapshot",
+            "reasons": [],
+        },
+    )
+    return {
+        "project": "sample-project",
+        "artifactPath": "/tmp/sample-project/operator_status.json",
+        "notes": ["info: using built-in sample snapshot (no mechanics reads)"],
+        "snapshot": snapshot,
+    }
+
+
+def render_html_for_project(
+    *,
+    project: str,
+    state_dir: str | None = None,
+    queue_preview: int = 5,
+    tick_count: int = 3,
+    rebuild_missing: bool = False,
+    rebuild_malformed: bool = False,
+    write_rebuild: bool = False,
+) -> str:
+    resolved = resolve_operator_snapshot(
+        state_dir=state_dir,
+        project=project,
+        queue_preview=queue_preview,
+        tick_count=tick_count,
+        rebuild_missing=rebuild_missing,
+        rebuild_malformed=rebuild_malformed,
+        write_rebuild=write_rebuild,
+    )
+    if resolved.artifact is None:
+        return render_unavailable_html(
+            project=project,
+            artifact_path=str(resolved.artifact_path),
+            notes=resolved.notes,
+        )
+    return render_html_from_snapshot_envelope(
+        {
+            "project": project,
+            "artifactPath": str(resolved.artifact_path),
+            "notes": list(resolved.notes),
+            "snapshot": resolved.artifact,
+        }
+    )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Render the read-only AgentRunner operator HTML surface without starting a separate web runtime",
+    )
+    parser.add_argument("--project", help="Project id to render from the canonical operator snapshot")
+    parser.add_argument("--state-dir", help="Explicit project state dir (alternative to --project)")
+    parser.add_argument("--queue-preview", type=int, default=5, help="Queue preview size when bounded rebuild is enabled")
+    parser.add_argument("--tick-count", type=int, default=3, help="Tick tail size when bounded rebuild is enabled")
+    parser.add_argument("--rebuild-missing", action="store_true", help="If operator_status.json is missing, do a bounded manual rebuild from mechanics files")
+    parser.add_argument("--rebuild-malformed", action="store_true", help="If operator_status.json is malformed, do a bounded manual rebuild from mechanics files")
+    parser.add_argument("--write-rebuild", action="store_true", help="Persist a bounded rebuild back to operator_status.json")
+    parser.add_argument("--snapshot-file", help="Render from a snapshot envelope fixture JSON file")
+    parser.add_argument("--smoke-sample", action="store_true", help="Render against a built-in sample snapshot without live mechanics")
+    parser.add_argument("--output", help="Write HTML to this file instead of stdout")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    modes = [bool(args.snapshot_file), bool(args.smoke_sample), bool(args.project or args.state_dir)]
+    if sum(1 for enabled in modes if enabled) != 1:
+        parser.error("choose exactly one render source: --snapshot-file, --smoke-sample, or --project/--state-dir")
+
+    if args.snapshot_file:
+        try:
+            envelope = json.loads(Path(args.snapshot_file).read_text(encoding="utf-8"))
+        except Exception as exc:
+            parser.error(f"snapshot fixture is malformed: {exc}")
+        html_text = render_html_from_snapshot_envelope(envelope)
+    elif args.smoke_sample:
+        html_text = render_html_from_snapshot_envelope(sample_snapshot_envelope())
+    else:
+        html_text = render_html_for_project(
+            project=args.project or Path(args.state_dir).name,
+            state_dir=args.state_dir,
+            queue_preview=args.queue_preview,
+            tick_count=args.tick_count,
+            rebuild_missing=args.rebuild_missing,
+            rebuild_malformed=args.rebuild_malformed,
+            write_rebuild=args.write_rebuild,
+        )
+
+    if args.output:
+        Path(args.output).write_text(html_text, encoding="utf-8")
+    else:
+        sys.stdout.write(html_text)
+    return 0
 
 
 if __name__ == "__main__":
