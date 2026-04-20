@@ -129,7 +129,7 @@ def test_browser_surface_happy_path(home: Path, *, port: int) -> None:
     assert headers.get('Content-Type', '').startswith('text/html')
     assert 'AgentRunner operator · demo' in body
     assert 'Snapshot may be stale relative to recent mechanics activity.' in body
-    assert 'developer-1 | developer | feature/demo | age=12s' in body
+    assert 'Running now: developer-1 | developer | feature/demo | running for 12s' in body
     assert 'Review it' in body
     assert 'data-refresh-ms="5000"' in body
     assert 'window.setInterval(refreshSnapshot, refreshMs);' in body
