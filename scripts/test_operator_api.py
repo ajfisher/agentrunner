@@ -131,6 +131,9 @@ def test_browser_surface_happy_path(home: Path, *, port: int) -> None:
     assert 'Snapshot may be stale relative to recent mechanics activity.' in body
     assert 'developer-1 | developer | feature/demo | age=12s' in body
     assert 'Review it' in body
+    assert 'data-refresh-ms="5000"' in body
+    assert 'window.setInterval(refreshSnapshot, refreshMs);' in body
+    assert "fetch(`/v1/operator/snapshot?project=${encodeURIComponent(project)}`" in body
     assert 'approve' not in body.lower()
     assert 'retry' not in body.lower()
     assert 'enqueue' not in body.lower()

@@ -98,6 +98,9 @@ def test_rendered_html_mentions_the_api_contract_not_a_second_runtime() -> None:
     assert '/v1/operator/snapshot' in html
     assert 'developer-1 | developer | feature/agentrunner/operator-web-ui | age=42s' in html
     assert 'read-only browser renderer' in html
+    assert 'data-refresh-ms="5000"' in html
+    assert 'window.setInterval(refreshSnapshot, refreshMs);' in html
+    assert "fetch(`/v1/operator/snapshot?project=${encodeURIComponent(project)}`" in html
 
 
 def test_cli_supports_fixture_and_built_in_smoke_render_paths() -> None:

@@ -238,18 +238,9 @@ def render_html(model: OperatorPageModel) -> str:
     def esc(value: Any) -> str:
         return html.escape(str(value), quote=True)
 
-    note_items = "".join(f"<li>{esc(note)}</li>" for note in model.notes) or "<li>No snapshot notes.</li>"
-    banner_html = "".join(f"<div class=\"banner\">{esc(line)}</div>" for line in model.banner_lines)
-    section_cards = []
-    for section in model.sections:
-        line_items = "".join(f"<li>{esc(line)}</li>" for line in section.lines) or "<li>none</li>"
-        section_cards.append(
-            "<section class=\"card\">"
-            f"<h2>{esc(section.title)}</h2>"
-            f"<ul>{line_items}</ul>"
-            "</section>"
-        )
-    cards = "".join(section_cards)
+    initial_payload = page_model_payload(model)
+    initial_payload_json = json.dumps(initial_payload, ensure_ascii=False)
+    refresh_ms = 5000
     return f"""<!doctype html>
 <html lang=\"en\">
 <head>
@@ -282,28 +273,191 @@ def render_html(model: OperatorPageModel) -> str:
     ul {{ margin: 0; padding-left: 1.1rem; }}
     li {{ margin: .3rem 0; }}
     code {{ color: var(--accent); }}
-    footer {{ padding: 0 1.25rem 1.25rem; color: var(--muted); }}
+    footer {{ padding: 0 1.25rem 1.25rem; color: var(--muted); display: grid; gap: .35rem; }}
   </style>
 </head>
-<body>
+<body data-project="{esc(model.project)}" data-refresh-ms="{refresh_ms}">
   <header>
-    <h1>AgentRunner operator · {esc(model.project)}</h1>
-    <div class=\"meta\">
-      <div>{esc(model.mode_line)}</div>
-      <div>{esc(model.status_line)}</div>
-      <div>{esc(model.updated_line)}</div>
-      <div>artifact: <code>{esc(model.artifact_path or 'n/a')}</code></div>
-    </div>
+    <h1 id=\"page-title\">AgentRunner operator · {esc(model.project)}</h1>
+    <div class=\"meta\" id=\"page-meta\"></div>
   </header>
   <main>
-    {banner_html}
+    <div id=\"page-banners\"></div>
     <section class=\"card\">
       <h2>snapshot notes</h2>
-      <ul>{note_items}</ul>
+      <ul id=\"page-notes\"></ul>
     </section>
-    <div class=\"card-grid\">{cards}</div>
+    <div class=\"card-grid\" id=\"page-sections\"></div>
   </main>
-  <footer>Read-only browser renderer over the canonical /v1/operator/snapshot contract.</footer>
+  <footer>
+    <div>Read-only browser renderer over the canonical /v1/operator/snapshot contract.</div>
+    <div id=\"refresh-status\"></div>
+  </footer>
+  <script>
+    const initialPageModel = {initial_payload_json};
+    const refreshMs = Number(document.body.dataset.refreshMs || '5000');
+    const project = document.body.dataset.project || initialPageModel.project;
+
+    function escapeHtml(value) {{
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }}
+
+    function renderPage(model, refreshLabel) {{
+      document.title = `AgentRunner operator · ${{model.project}}`;
+      document.getElementById('page-title').textContent = `AgentRunner operator · ${{model.project}}`;
+      document.getElementById('page-meta').innerHTML = [
+        `<div>${{escapeHtml(model.modeLine)}}</div>`,
+        `<div>${{escapeHtml(model.statusLine)}}</div>`,
+        `<div>${{escapeHtml(model.updatedLine)}}</div>`,
+        `<div>artifact: <code>${{escapeHtml(model.artifactPath || 'n/a')}}</code></div>`,
+      ].join('');
+
+      const banners = model.bannerLines && model.bannerLines.length
+        ? model.bannerLines.map((line) => `<div class=\"banner\">${{escapeHtml(line)}}</div>`).join('')
+        : '';
+      document.getElementById('page-banners').innerHTML = banners;
+
+      const notes = model.notes && model.notes.length
+        ? model.notes.map((line) => `<li>${{escapeHtml(line)}}</li>`).join('')
+        : '<li>No snapshot notes.</li>';
+      document.getElementById('page-notes').innerHTML = notes;
+
+      const sections = (model.sections || []).map((section) => {{
+        const lines = section.lines && section.lines.length
+          ? section.lines.map((line) => `<li>${{escapeHtml(line)}}</li>`).join('')
+          : '<li>none</li>';
+        return `<section class=\"card\"><h2>${{escapeHtml(section.title)}}</h2><ul>${{lines}}</ul></section>`;
+      }}).join('');
+      document.getElementById('page-sections').innerHTML = sections;
+      document.getElementById('refresh-status').textContent = refreshLabel;
+    }}
+
+    function pageModelFromEnvelope(envelope) {{
+      const snapshot = envelope && envelope.snapshot && typeof envelope.snapshot === 'object' ? envelope.snapshot : {{}};
+      const warnings = Array.isArray(snapshot.warnings) ? snapshot.warnings : [];
+      const warningCodes = new Set(
+        warnings
+          .filter((item) => item && typeof item === 'object' && item.code != null)
+          .map((item) => String(item.code))
+      );
+      const bannerLines = [];
+      if (warningCodes.has('stale_snapshot') || warningCodes.has('snapshot_stale')) {{
+        bannerLines.push('Snapshot may be stale relative to recent mechanics activity.');
+      }}
+      if (['missing', 'snapshot-unavailable', 'unknown'].includes(snapshot.status)) {{
+        bannerLines.push('Snapshot is not currently giving a confident operator answer.');
+      }}
+
+      const current = snapshot.current && typeof snapshot.current === 'object' ? snapshot.current : null;
+      let currentLine = 'Current: idle';
+      if (current && Object.keys(current).length) {{
+        const bits = [current.queueItemId || 'unknown-item', current.role || 'unknown-role'];
+        if (current.branch) bits.push(String(current.branch));
+        if (current.ageSeconds != null) bits.push(`age=${{current.ageSeconds}}s`);
+        currentLine = 'Current: ' + bits.join(' | ');
+      }}
+
+      const queue = snapshot.queue && typeof snapshot.queue === 'object' ? snapshot.queue : null;
+      const queueLines = [];
+      if (!queue) {{
+        queueLines.push('Queue: unavailable');
+      }} else {{
+        queueLines.push(`Depth: ${{queue.depth ?? 0}}`);
+        const nextIds = Array.isArray(queue.nextIds) ? queue.nextIds : [];
+        if (nextIds.length) queueLines.push('Next: ' + nextIds.map(String).join(', '));
+        const preview = Array.isArray(queue.preview) ? queue.preview : [];
+        for (const item of preview.slice(0, 5)) {{
+          if (item && typeof item === 'object') {{
+            const bits = [item.queueItemId || 'unknown-item', item.role || 'unknown-role'];
+            if (item.branch) bits.push(String(item.branch));
+            if (item.goal) bits.push(String(item.goal));
+            queueLines.push(bits.join(' | '));
+          }} else {{
+            queueLines.push(String(item));
+          }}
+        }}
+      }}
+
+      const initiative = snapshot.initiative && typeof snapshot.initiative === 'object' ? snapshot.initiative : null;
+      const initiativeLines = !initiative || !Object.keys(initiative).length
+        ? ['Initiative: none']
+        : [
+            `Initiative: ${{initiative.initiativeId || 'unknown-initiative'}}`,
+            ...(initiative.phase ? [`Phase: ${{initiative.phase}}`] : []),
+            ...(initiative.currentSubtaskId ? [`Subtask: ${{initiative.currentSubtaskId}}`] : []),
+          ];
+
+      const lastCompleted = snapshot.lastCompleted && typeof snapshot.lastCompleted === 'object' ? snapshot.lastCompleted : null;
+      const lastCompletedLines = !lastCompleted || !Object.keys(lastCompleted).length
+        ? ['Last completed: none']
+        : [
+            'Last completed: ' + [
+              lastCompleted.queueItemId || 'unknown-item',
+              lastCompleted.role || 'unknown-role',
+              lastCompleted.status || 'unknown-status',
+              ...(lastCompleted.summary ? [String(lastCompleted.summary)] : []),
+            ].join(' | '),
+          ];
+
+      const warningLines = warnings.length
+        ? warnings.slice(0, 5).map((item) => item && typeof item === 'object'
+            ? `${{item.severity || 'info'}}: ${{item.summary || item.code || 'warning'}}`
+            : String(item))
+        : ['Warnings: none'];
+
+      const reconciliation = snapshot.reconciliation && typeof snapshot.reconciliation === 'object' ? snapshot.reconciliation : null;
+      const reconciliationLines = !reconciliation || !Object.keys(reconciliation).length
+        ? ['Reconciliation: unavailable']
+        : [
+            `Decision: ${{reconciliation.decision || 'unknown'}}`,
+            ...(reconciliation.summary ? [`Summary: ${{reconciliation.summary}}`] : []),
+          ];
+
+      return {{
+        project: String(envelope.project || snapshot.project || project || 'unknown-project'),
+        artifactPath: String(envelope.artifactPath || ''),
+        modeLine: 'Mode: browser renderer over canonical /v1/operator/snapshot',
+        statusLine: `Status: ${{snapshot.status || 'unknown'}}`,
+        updatedLine: `Updated: ${{snapshot.updatedAt || 'unknown'}}`,
+        notes: Array.isArray(envelope.notes) ? envelope.notes.map(String) : [],
+        sections: [
+          {{title: 'current', lines: [currentLine]}},
+          {{title: 'queue', lines: queueLines}},
+          {{title: 'initiative', lines: initiativeLines}},
+          {{title: 'last completed', lines: lastCompletedLines}},
+          {{title: 'warnings', lines: warningLines}},
+          {{title: 'reconciliation', lines: reconciliationLines}},
+        ],
+        bannerLines,
+      }};
+    }}
+
+    async function refreshSnapshot() {{
+      try {{
+        const response = await fetch(`/v1/operator/snapshot?project=${{encodeURIComponent(project)}}`, {{
+          method: 'GET',
+          headers: {{'Accept': 'application/json'}},
+          cache: 'no-store',
+        }});
+        const envelope = await response.json();
+        if (!response.ok) {{
+          throw new Error(envelope && envelope.message ? envelope.message : `snapshot refresh failed with ${{response.status}}`);
+        }}
+        renderPage(pageModelFromEnvelope(envelope), `Auto-refreshing every ${{Math.round(refreshMs / 1000)}}s · last refresh ok at ${{new Date().toLocaleTimeString()}}`);
+      }} catch (error) {{
+        document.getElementById('refresh-status').textContent = `Auto-refreshing every ${{Math.round(refreshMs / 1000)}}s · refresh failed: ${{error.message}}`;
+      }}
+    }}
+
+    renderPage(initialPageModel, `Auto-refreshing every ${{Math.round(refreshMs / 1000)}}s · waiting for first refresh…`);
+    window.setInterval(refreshSnapshot, refreshMs);
+    window.setTimeout(refreshSnapshot, refreshMs);
+  </script>
 </body>
 </html>
 """
