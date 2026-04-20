@@ -116,6 +116,7 @@ How the operator surfaces fit together:
 - `operator_data.py` is the shared stdlib-only read model that owns artifact-first loading, bounded missing/malformed rebuild fallback, and the named snapshot accessors downstream adapters should use instead of poking through raw dicts.
 - `status.py` is the explicit rebuild/debug helper when you intentionally want to regenerate the artifact from mechanics files.
 - `tick_tailer.py` is the recent-history companion for "what just happened?", not a replacement for the status artifact.
+- browser-facing UI is intentionally bounded to a local read-only attach path over the existing API entrypoint; see `agentrunner/docs/OPERATOR_WEB_UI.md`.
 
 Regression proof coverage for the shared operator data layer now explicitly checks:
 - canonical-artifact reads without opportunistic raw-file archaeology
@@ -131,6 +132,7 @@ Rule of thumb:
 - reach for `python3 -m agentrunner status|queue|initiatives|watch --project <project>` first
 - use `python3 -m agentrunner api --host 127.0.0.1 --port 8765` when you want a tiny optional local read-only HTTP JSON adapter over the canonical operator snapshot
 - use `python3 -m agentrunner tui --project <project>` when you want a local terminal surface that keeps re-rendering the same canonical read model without adding any write/control affordances
+- for a browser-facing UI, attach to that existing local API entrypoint rather than inventing a second control/runtime surface; the bounded contract is documented in `agentrunner/docs/OPERATOR_WEB_UI.md`
 - keep the API on loopback unless you are intentionally placing another authenticated/local transport in front of it; the intended default is machine-facing localhost use, not a public/operator write surface
 - the TUI is intentionally local and optional; today it is a small stdlib-only redraw loop over `operator_data`, not a second runtime, daemon, or operator authority
 - use `python3 agentrunner/scripts/operator_cli.py ...` when you need the direct compatibility path or are debugging the router/delegation layer
@@ -159,6 +161,8 @@ Current endpoint:
 - `GET /v1/operator/snapshot?project=<project>`
 - `HEAD /v1/operator/snapshot?project=<project>`
 - write methods are rejected with `405 method_not_allowed`
+
+This same localhost-only endpoint is the chosen attach surface for any optional browser UI. The UI is expected to be a thin read-only renderer over the canonical snapshot payload, not a queue/state mutation path and not a public hosting default.
 
 ### Optional local operator TUI
 

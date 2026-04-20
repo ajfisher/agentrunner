@@ -172,8 +172,14 @@ Recommendation: keep this out of the critical path until the status artifact con
 ### 6) Optional web / dashboard integration
 Potentially expose operator status through:
 - a small local web page
-- a JSON endpoint
+- the existing local JSON endpoint
 - MQTT status topics for the cluster dashboard
+
+Current bounded direction:
+- do **not** assume a separate `python3 -m agentrunner web` runtime yet
+- prefer attaching any browser UI to `python3 -m agentrunner api --host 127.0.0.1 --port 8765`
+- keep the surface localhost-first, read-only, and downstream of the canonical operator snapshot contract
+- do not imply queue/state mutation or public hosting by default
 
 If MQTT broadcast coverage exists, keep it hermetic by default: prove payload/topic shape through a stub publisher seam rather than depending on a real broker during ordinary CI runs.
 
@@ -187,6 +193,7 @@ Candidate displayed fields:
 - initiative phase
 - queue depth
 - stale warning / age
+- reconciliation winner / updated timestamp
 
 Again: this should consume the canonical status artifact rather than inventing its own reconstruction logic.
 

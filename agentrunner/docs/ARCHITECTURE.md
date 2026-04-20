@@ -85,6 +85,7 @@ Compatibility and limitation notes:
 - a bare `agentrunner ...` console-script shim may be packaged in some environments later, but it is not the architectural baseline to assume everywhere yet
 - `status.py` and `tick_tailer.py` are intentionally lower-level rebuild/debug/history helpers, not alternate primary operator surfaces
 - `api` is the optional machine-facing localhost JSON adapter over the canonical operator snapshot; it is read-only and should not be treated as an internet-facing control plane
+- any future browser-facing operator UI should attach to that existing local API surface first (`python3 -m agentrunner api --host 127.0.0.1 --port 8765`) instead of implying a separate control-plane web runtime by default
 
 ## Operator adapter stack
 

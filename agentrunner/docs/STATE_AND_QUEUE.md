@@ -148,8 +148,25 @@ The optional HTTP API exists to serve the canonical operator snapshot to colocat
 
 Intended role:
 - read-only adapter over `operator_status.json`
-- convenience layer for local dashboards, scripts, TUIs, or other automation on the same host
+- convenience layer for local dashboards, scripts, TUIs, browser UIs, or other automation on the same host
 - not an authority for queue mutation, dispatch, completion, or artifact rebuilding
+
+## Optional local operator web UI contract
+
+The browser-facing operator surface is intentionally bounded.
+
+Chosen attach path:
+- launch the existing local API entrypoint with `python3 -m agentrunner api --host 127.0.0.1 --port 8765`
+- attach a browser UI to `GET /v1/operator/snapshot?project=<project>` rather than introducing a separate `python3 -m agentrunner web` runtime for the first slice
+
+Boundaries:
+- optional and localhost-oriented by default
+- read-only over the canonical operator snapshot/read model
+- downstream of `operator_status.json` and `operator_data.py`, not a control plane
+- must preserve the same required snapshot fields: `status`, `current`, `queue`, `initiative`, `lastCompleted`, `warnings`, `reconciliation`, `updatedAt`
+- must not mutate queue/state/ticks/results or imply public hosting by default
+
+See also: `agentrunner/docs/OPERATOR_WEB_UI.md`.
 
 ## Optional local operator TUI contract
 
