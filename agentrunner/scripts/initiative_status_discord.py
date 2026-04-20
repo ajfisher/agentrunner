@@ -70,17 +70,51 @@ def _first_dict(*values: Any) -> dict[str, Any] | None:
     return None
 
 
+def _gateway_response_error(response: Any) -> str | None:
+    if not isinstance(response, dict):
+        return None
+
+    failure_flag = False
+    if response.get("ok") is False or response.get("success") is False:
+        failure_flag = True
+    nested = _first_dict(response.get("error"), response.get("err"), response.get("details"))
+    if isinstance(nested, dict) and (nested.get("ok") is False or nested.get("success") is False):
+        failure_flag = True
+
+    if not failure_flag:
+        return None
+
+    parts: list[str] = []
+    for value in (
+        response.get("error"),
+        response.get("message"),
+        response.get("detail"),
+        response.get("reason"),
+        response.get("code"),
+    ):
+        text = clip(value, 120)
+        if text and text not in parts:
+            parts.append(text)
+
+    if isinstance(nested, dict):
+        for value in (
+            nested.get("message"),
+            nested.get("detail"),
+            nested.get("reason"),
+            nested.get("code"),
+        ):
+            text = clip(value, 120)
+            if text and text not in parts:
+                parts.append(text)
+
+    return " | ".join(parts[:3]) or "discord status-message delivery failed"
+
+
 def normalize_discord_message_handle(raw: Any, *, fallback_target: dict[str, Any] | None = None) -> dict[str, Any] | None:
     target = fallback_target if isinstance(fallback_target, dict) else {}
     candidate = raw
     if isinstance(raw, dict):
-        candidate = (
-            raw.get("message")
-            or raw.get("result")
-            or raw.get("data")
-            or raw.get("response")
-            or raw
-        )
+        candidate = _first_dict(raw.get("message"), raw.get("result"), raw.get("data"), raw.get("response")) or raw
     handle = normalize_message_handle(candidate)
     if handle is None and isinstance(candidate, dict):
         nested = _first_dict(candidate.get("message"), candidate.get("result"), candidate.get("data"), candidate.get("response"))
@@ -232,9 +266,22 @@ def deliver_discord_status_message(
             error=clip(exc, 240) or "discord status-message delivery failed",
         )
 
-    handle = normalize_discord_message_handle(response, fallback_target=resolved_target)
+    response_payload = response if isinstance(response, dict) else {"result": response}
+    response_error = _gateway_response_error(response_payload)
+    handle = normalize_discord_message_handle(response_payload, fallback_target=resolved_target)
     if handle is None and action == "edit" and isinstance(existing_handle, dict):
         handle = normalize_discord_message_handle(existing_handle, fallback_target=resolved_target)
+    if response_error:
+        return DiscordStatusMessageResult(
+            ok=False,
+            operation=operation,
+            action=action,
+            target=resolved_target,
+            handle=handle,
+            message=message,
+            response=response_payload,
+            error=response_error,
+        )
     return DiscordStatusMessageResult(
         ok=True,
         operation=operation,
@@ -242,7 +289,7 @@ def deliver_discord_status_message(
         target=resolved_target,
         handle=handle,
         message=message,
-        response=response if isinstance(response, dict) else {"result": response},
+        response=response_payload,
         error=None,
     )
 

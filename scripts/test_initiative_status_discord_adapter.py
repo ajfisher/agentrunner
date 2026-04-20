@@ -252,13 +252,81 @@ def test_delivery_failures_are_recorded_without_losing_state() -> None:
     assert status_message['history'][-1]['status'] == 'error'
 
 
+def test_structured_create_failure_payload_is_treated_as_error() -> None:
+    initiative_state = base_initiative_state()
+
+    def structured_failure(_tool: str, args: dict) -> dict:
+        assert args['action'] == 'send'
+        return {
+            'ok': False,
+            'error': 'discord gateway rejected send',
+            'code': 'RATE_LIMITED',
+        }
+
+    result = apply_discord_status_message(
+        initiative_state,
+        operation='create',
+        lifecycle_event='initiative_activated',
+        event=activation_event(initiative_state),
+        invoke_gateway=structured_failure,
+        target={'target': 'channel:1477159463143084217'},
+    )
+
+    assert result.ok is False
+    assert 'discord gateway rejected send' in (result.error or '')
+    status_message = initiative_state['statusMessage']
+    assert status_message['delivery']['status'] == 'error'
+    assert status_message['delivery']['metadata']['lastResponseOk'] is False
+    assert 'discord gateway rejected send' in (status_message['delivery']['lastError'] or '')
+
+
+def test_structured_edit_failure_payload_keeps_handle_but_marks_error() -> None:
+    initiative_state = base_initiative_state()
+    initiative_state['statusMessage']['target'] = {'channel': 'discord', 'target': 'channel:1477159463143084217'}
+    initiative_state['statusMessage']['handle'] = {'id': 'msg-existing', 'channelId': '1477159463143084217', 'provider': 'discord'}
+
+    def structured_failure(_tool: str, args: dict) -> dict:
+        assert args['action'] == 'edit'
+        return {
+            'success': False,
+            'message': 'discord gateway rejected edit',
+            'details': {'reason': 'unknown message'},
+        }
+
+    result = apply_discord_status_message(
+        initiative_state,
+        operation='update',
+        lifecycle_event='review_blocked',
+        event=build_status_message_event(
+            operation='update',
+            lifecycle_event='review_blocked',
+            initiative_state=initiative_state,
+            summary='Structured edit failure should not look healthy.',
+            blocked_reason='Discord rejected the edit.',
+            result={'status': 'blocked', 'summary': 'edit rejected'},
+        ),
+        invoke_gateway=structured_failure,
+    )
+
+    assert result.ok is False
+    assert result.handle is not None
+    assert result.handle['id'] == 'msg-existing'
+    status_message = initiative_state['statusMessage']
+    assert status_message['handle']['id'] == 'msg-existing'
+    assert status_message['delivery']['status'] == 'error'
+    assert status_message['delivery']['metadata']['lastResponseOk'] is False
+    assert 'discord gateway rejected edit' in (status_message['delivery']['lastError'] or '')
+
+
 def main() -> int:
     test_target_loading_and_merge_keep_routing_compact()
     test_normalize_message_handle_accepts_common_gateway_shapes()
     test_rendered_message_is_compact_and_includes_result_bits()
     test_create_then_update_then_finalize_reuses_single_handle()
     test_delivery_failures_are_recorded_without_losing_state()
-    print('ok: initiative status Discord adapter proof covers target normalization, handle parsing, single-message create/update/finalize flow, and failure-tolerant state persistence')
+    test_structured_create_failure_payload_is_treated_as_error()
+    test_structured_edit_failure_payload_keeps_handle_but_marks_error()
+    print('ok: initiative status Discord adapter proof covers target normalization, handle parsing, single-message create/update/finalize flow, and exception/structured failure-tolerant state persistence')
     return 0
 
 
