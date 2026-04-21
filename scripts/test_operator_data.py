@@ -18,6 +18,7 @@ from operator_data import (  # noqa: E402
     snapshot_contract,
     snapshot_current,
     snapshot_initiative,
+    snapshot_closure,
     snapshot_last_completed,
     snapshot_project,
     snapshot_queue,
@@ -272,6 +273,12 @@ def test_snapshot_accessors_cover_minimum_adapter_fields(state_dir: Path) -> Non
     assert initiative['initiativeId'] == 'agentrunner-operator-data-layer'
     assert initiative['phase'] == 'implementation'
     assert initiative['currentSubtaskId'] == 'operator-data-layer-proof-and-docs'
+
+    closure = snapshot_closure(loaded)
+    assert closure is not None
+    assert closure['state'] == 'execution-active'
+    assert closure['handoffSafe'] is False
+    assert closure['quiet'] is False
 
     last_completed = snapshot_last_completed(loaded)
     assert last_completed is not None

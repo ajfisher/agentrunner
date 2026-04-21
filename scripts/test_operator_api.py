@@ -77,6 +77,7 @@ def test_snapshot_happy_path(home: Path, *, port: int) -> None:
         'current': None,
         'queue': {'depth': 1, 'nextIds': ['reviewer-1'], 'preview': []},
         'initiative': None,
+        'closure': {'state': 'execution-active', 'handoffSafe': False, 'quiet': False, 'initiativePhase': None, 'reason': 'queued work remains before closure is settled'},
         'lastCompleted': None,
         'warnings': [],
         'reconciliation': {'decision': 'idle-pending', 'summary': 'queued work remains', 'reasons': []},
@@ -92,6 +93,7 @@ def test_snapshot_happy_path(home: Path, *, port: int) -> None:
     assert data['notes'] == []
     assert sorted(data.keys()) == ['artifactPath', 'notes', 'project', 'snapshot']
     assert sorted(data['snapshot'].keys()) == [
+        'closure',
         'current',
         'initiative',
         'lastCompleted',
@@ -117,6 +119,7 @@ def test_browser_surface_happy_path(home: Path, *, port: int) -> None:
         'current': {'queueItemId': 'developer-1', 'role': 'developer', 'branch': 'feature/demo', 'ageSeconds': 12},
         'queue': {'depth': 1, 'nextIds': ['reviewer-1'], 'preview': [{'queueItemId': 'reviewer-1', 'role': 'reviewer', 'branch': 'feature/demo', 'goal': 'Review it'}]},
         'initiative': {'initiativeId': 'demo-web-ui', 'phase': 'implementation', 'currentSubtaskId': 'minimal-browser-surface'},
+        'closure': {'state': 'execution-active', 'handoffSafe': False, 'quiet': False, 'initiativePhase': 'implementation', 'reason': 'initiative is still in design/execution or runtime work remains before closure is settled'},
         'lastCompleted': {'queueItemId': 'architect-1', 'role': 'architect', 'status': 'ok', 'summary': 'Shaped the readonly page.'},
         'warnings': [{'code': 'snapshot_stale', 'severity': 'warning', 'summary': 'Snapshot may lag slightly.'}],
         'reconciliation': {'decision': 'active', 'summary': 'live state and snapshot agree', 'reasons': []},

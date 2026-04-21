@@ -65,6 +65,7 @@ REQUIRED_SNAPSHOT_FIELDS = (
     "current",
     "queue",
     "initiative",
+    "closure",
     "lastCompleted",
     "warnings",
     "reconciliation",
@@ -148,6 +149,10 @@ def _warning_tone(severity: str) -> str:
 
 STATUS_TONE_MAP: dict[str, str] = {
     "active": "good",
+    "blocked": "danger",
+    "conflicted": "danger",
+    "idle-clean": "neutral",
+    "idle-pending": "warn",
     "ok": "good",
     "idle": "neutral",
     "paused": "warn",
@@ -170,17 +175,23 @@ def _queue_chip(snapshot: dict[str, Any]) -> WebChip:
     queue = snapshot.get("queue")
     depth = queue.get("depth", 0) if isinstance(queue, dict) else 0
     current = snapshot.get("current")
+    closure = snapshot.get("closure") if isinstance(snapshot.get("closure"), dict) else {}
     is_running = isinstance(current, dict) and bool(current)
     if is_running:
         return WebChip(label=f"running · queue depth {depth}", tone="good" if depth == 0 else "info")
     if depth > 0:
         return WebChip(label=f"queued · {depth} waiting", tone="warn")
+    if closure.get("state") == "closure-active":
+        return WebChip(label="queue clear · closure follow-up remains", tone="warn")
     return WebChip(label="idle · queue clear", tone="neutral")
 
 
 def _warnings_chip(snapshot: dict[str, Any]) -> WebChip:
     warnings = _as_list(snapshot.get("warnings"), label="snapshot.warnings")
+    closure = snapshot.get("closure") if isinstance(snapshot.get("closure"), dict) else {}
     if not warnings:
+        if closure.get("handoffSafe") is False:
+            return WebChip(label="handoff not safe", tone="warn")
         return WebChip(label="warnings none", tone="good")
     severities = [
         str(item.get("severity") or "info")
@@ -207,6 +218,7 @@ def _status_summary(snapshot: dict[str, Any]) -> str:
     queue = snapshot.get("queue")
     depth = queue.get("depth", 0) if isinstance(queue, dict) else 0
     current = snapshot.get("current")
+    closure = _as_mapping(snapshot.get("closure") or {}, label="snapshot.closure")
     warnings = _as_list(snapshot.get("warnings"), label="snapshot.warnings")
     if isinstance(current, dict) and current:
         queue_item = current.get("queueItemId") or "current work"
@@ -216,6 +228,12 @@ def _status_summary(snapshot: dict[str, Any]) -> str:
         return f"{status.capitalize()} — {role} is working on {queue_item} and the queue is otherwise clear."
     if depth > 0:
         return f"{status.capitalize()} — nothing is running right now, but {depth} queued item{'s' if depth != 1 else ''} are waiting."
+    if closure.get("state") == "closure-active":
+        reason = str(closure.get("reason") or "Closure review or proof hardening still remains.")
+        return f"{status.capitalize()} — runtime is quiet, but closure follow-up still makes handoff unsafe. {reason}"
+    if closure.get("handoffSafe") is False:
+        reason = str(closure.get("reason") or "The initiative is not yet handoff-safe.")
+        return f"{status.capitalize()} — queue depth is zero, but the initiative is still not handoff-safe. {reason}"
     if warnings:
         return f"{status.capitalize()} — the queue is clear, but there {'are' if len(warnings) != 1 else 'is'} {len(warnings)} warning{'s' if len(warnings) != 1 else ''} worth checking."
     return f"{status.capitalize()} — nothing is running and the queue is clear."
@@ -290,6 +308,22 @@ def _line_initiative(snapshot: dict[str, Any]) -> tuple[str, ...]:
     return tuple(lines)
 
 
+def _line_closure(snapshot: dict[str, Any]) -> tuple[str, ...]:
+    closure = snapshot.get("closure")
+    if not isinstance(closure, dict) or not closure:
+        return ("Closure state is unavailable.",)
+    lines = [f"Closure state: {closure.get('state', 'unknown')}"]
+    if closure.get("handoffSafe") is not None:
+        lines.append(f"Handoff safe: {closure.get('handoffSafe')}")
+    if closure.get("quiet") is not None:
+        lines.append(f"Runtime quiet: {closure.get('quiet')}")
+    if closure.get("initiativePhase"):
+        lines.append(f"Closure phase: {closure.get('initiativePhase')}")
+    if closure.get("reason"):
+        lines.append(f"Why not handoff-safe: {closure.get('reason')}")
+    return tuple(lines)
+
+
 def _line_last_completed(snapshot: dict[str, Any]) -> tuple[str, ...]:
     last = snapshot.get("lastCompleted")
     if not isinstance(last, dict) or not last:
@@ -357,6 +391,7 @@ def build_page_model_from_snapshot_envelope(envelope: dict[str, Any]) -> Operato
         WebSection(title="current", lines=(_line_current(snapshot),)),
         WebSection(title="queue", lines=_line_queue(snapshot)),
         WebSection(title="initiative", lines=_line_initiative(snapshot)),
+        WebSection(title="closure", lines=_line_closure(snapshot)),
         WebSection(title="last completed", lines=_line_last_completed(snapshot)),
         WebSection(title="warnings", lines=_line_warnings(snapshot)),
         WebSection(title="reconciliation", lines=_line_reconciliation(snapshot)),
@@ -590,6 +625,7 @@ def render_html(model: OperatorPageModel) -> str:
       }}
 
       const queue = snapshot.queue && typeof snapshot.queue === 'object' ? snapshot.queue : null;
+      const closure = snapshot.closure && typeof snapshot.closure === 'object' ? snapshot.closure : null;
       const queueDepth = queue ? Number(queue.depth ?? 0) : 0;
       const queueLines = [];
       if (!queue) {{
@@ -624,6 +660,16 @@ def render_html(model: OperatorPageModel) -> str:
             ...(initiative.currentSubtaskId ? [`Current subtask: ${{initiative.currentSubtaskId}}`] : []),
           ];
 
+      const closureLines = !closure || !Object.keys(closure).length
+        ? ['Closure state is unavailable.']
+        : [
+            `Closure state: ${{closure.state || 'unknown'}}`,
+            ...(closure.handoffSafe != null ? [`Handoff safe: ${{closure.handoffSafe}}`] : []),
+            ...(closure.quiet != null ? [`Runtime quiet: ${{closure.quiet}}`] : []),
+            ...(closure.initiativePhase ? [`Closure phase: ${{closure.initiativePhase}}`] : []),
+            ...(closure.reason ? [`Why not handoff-safe: ${{closure.reason}}`] : []),
+          ];
+
       const lastCompleted = snapshot.lastCompleted && typeof snapshot.lastCompleted === 'object' ? snapshot.lastCompleted : null;
       const lastCompletedLines = !lastCompleted || !Object.keys(lastCompleted).length
         ? ['Nothing has completed recently.']
@@ -652,7 +698,7 @@ def render_html(model: OperatorPageModel) -> str:
 
       const status = String(snapshot.status || 'unknown');
       const statusLabel = status.replaceAll('-', ' ');
-      const statusToneMap = {{"active": "good", "ok": "good", "idle": "neutral", "paused": "warn", "missing": "danger", "snapshot-unavailable": "danger", "unknown": "warn"}};
+      const statusToneMap = {{"active": "good", "blocked": "danger", "conflicted": "danger", "idle-clean": "neutral", "idle-pending": "warn", "ok": "good", "idle": "neutral", "paused": "warn", "missing": "danger", "snapshot-unavailable": "danger", "unknown": "warn"}};
       let statusSummary = `${{statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1)}} — nothing is running and the queue is clear.`;
       if (current && Object.keys(current).length) {{
         const queueItemId = current.queueItemId || 'current work';
@@ -662,6 +708,10 @@ def render_html(model: OperatorPageModel) -> str:
           : `${{statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1)}} — ${{role}} is working on ${{queueItemId}} and the queue is otherwise clear.`;
       }} else if (queueDepth > 0) {{
         statusSummary = `${{statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1)}} — nothing is running right now, but ${{queueDepth}} queued item${{queueDepth === 1 ? '' : 's'}} are waiting.`;
+      }} else if (closure && closure.state === 'closure-active') {{
+        statusSummary = `${{statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1)}} — runtime is quiet, but closure follow-up still makes handoff unsafe. ${{closure.reason || 'Closure review or proof hardening still remains.'}}`;
+      }} else if (closure && closure.handoffSafe === false) {{
+        statusSummary = `${{statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1)}} — queue depth is zero, but the initiative is still not handoff-safe. ${{closure.reason || 'The initiative is not yet handoff-safe.'}}`;
       }} else if (warnings.length) {{
         statusSummary = `${{statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1)}} — the queue is clear, but there ${{warnings.length === 1 ? 'is' : 'are'}} ${{warnings.length}} warning${{warnings.length === 1 ? '' : 's'}} worth checking.`;
       }}
@@ -674,11 +724,17 @@ def render_html(model: OperatorPageModel) -> str:
         chips.push({{label: `running · queue depth ${{queueDepth}}`, tone: queueDepth === 0 ? 'good' : 'info'}});
       }} else if (queueDepth > 0) {{
         chips.push({{label: `queued · ${{queueDepth}} waiting`, tone: 'warn'}});
+      }} else if (closure && closure.state === 'closure-active') {{
+        chips.push({{label: 'queue clear · closure follow-up remains', tone: 'warn'}});
       }} else {{
         chips.push({{label: 'idle · queue clear', tone: 'neutral'}});
       }}
       if (!warnings.length) {{
-        chips.push({{label: 'warnings none', tone: 'good'}});
+        if (closure && closure.handoffSafe === false) {{
+          chips.push({{label: 'handoff not safe', tone: 'warn'}});
+        }} else {{
+          chips.push({{label: 'warnings none', tone: 'good'}});
+        }}
       }} else {{
         const severe = warnings.some((item) => item && typeof item === 'object' && ['error', 'critical'].includes(String(item.severity || '').toLowerCase()));
         const warned = warnings.some((item) => item && typeof item === 'object' && ['warn', 'warning'].includes(String(item.severity || '').toLowerCase()));
@@ -700,6 +756,7 @@ def render_html(model: OperatorPageModel) -> str:
           {{title: 'current', lines: [currentLine]}},
           {{title: 'queue', lines: queueLines}},
           {{title: 'initiative', lines: initiativeLines}},
+          {{title: 'closure', lines: closureLines}},
           {{title: 'last completed', lines: lastCompletedLines}},
           {{title: 'warnings', lines: warningLines}},
           {{title: 'reconciliation', lines: reconciliationLines}},
@@ -775,6 +832,16 @@ def sample_snapshot_envelope() -> dict[str, Any]:
             "decision": snapshot.get("status", "unknown"),
             "summary": "sample readonly operator snapshot",
             "reasons": [],
+        },
+    )
+    snapshot.setdefault(
+        "closure",
+        {
+            "state": "execution-active",
+            "handoffSafe": False,
+            "quiet": False,
+            "initiativePhase": None,
+            "reason": "sample snapshot does not assert closure handoff safety",
         },
     )
     return {

@@ -113,6 +113,11 @@ def snapshot_initiative(artifact: dict[str, Any]) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def snapshot_closure(artifact: dict[str, Any]) -> dict[str, Any] | None:
+    value = artifact.get("closure")
+    return value if isinstance(value, dict) else None
+
+
 def snapshot_last_completed(artifact: dict[str, Any]) -> dict[str, Any] | None:
     value = artifact.get("lastCompleted")
     return value if isinstance(value, dict) else None
@@ -155,6 +160,7 @@ def build_operator_screen_view(
     snapshot = resolved.artifact or {}
     current = snapshot_current(snapshot)
     initiative = snapshot_initiative(snapshot)
+    closure = snapshot_closure(snapshot)
     last_completed = snapshot_last_completed(snapshot)
     warnings = snapshot_warnings(snapshot)
     result_hint_value = snapshot_result_hint(snapshot)
@@ -193,6 +199,17 @@ def build_operator_screen_view(
         if initiative
         else ('none',)
     )
+    closure_lines = (
+        (
+            f"state: {closure.get('state', '-')}",
+            f"handoff safe: {closure.get('handoffSafe', '-')}",
+            f"quiet: {closure.get('quiet', '-')}",
+            f"phase: {closure.get('initiativePhase', '-')}",
+            f"reason: {closure.get('reason', '-')}",
+        )
+        if closure
+        else ('none',)
+    )
     last_completed_lines = (
         (
             f"queue item: {last_completed.get('queueItemId', '-')}",
@@ -219,6 +236,7 @@ def build_operator_screen_view(
             OperatorScreenSection(title='current', lines=current_lines),
             OperatorScreenSection(title='queue', lines=tuple(queue_lines)),
             OperatorScreenSection(title='initiative', lines=initiative_lines),
+            OperatorScreenSection(title='closure', lines=closure_lines),
             OperatorScreenSection(title='last completed', lines=last_completed_lines),
             OperatorScreenSection(title='warnings', lines=warning_lines),
             OperatorScreenSection(title='result hint', lines=result_hint_lines),

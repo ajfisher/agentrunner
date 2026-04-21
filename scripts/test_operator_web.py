@@ -47,6 +47,13 @@ def sample_envelope() -> dict:
                 'phase': 'implementation',
                 'currentSubtaskId': 'operator-web-ui-http-and-viewmodel-seam',
             },
+            'closure': {
+                'state': 'execution-active',
+                'handoffSafe': False,
+                'quiet': False,
+                'initiativePhase': 'implementation',
+                'reason': 'initiative is still in design/execution or runtime work remains before closure is settled',
+            },
             'lastCompleted': {
                 'queueItemId': 'architect-1',
                 'role': 'architect',
@@ -82,7 +89,7 @@ def test_page_model_is_derived_from_canonical_snapshot_contract() -> None:
     ]
     assert payload['chips'][0]['tone'] == 'good'
     titles = [section['title'] for section in payload['sections']]
-    assert titles == ['current', 'queue', 'initiative', 'last completed', 'warnings', 'reconciliation']
+    assert titles == ['current', 'queue', 'initiative', 'closure', 'last completed', 'warnings', 'reconciliation']
     queue_lines = next(section['lines'] for section in payload['sections'] if section['title'] == 'queue')
     assert '2 items are waiting in the queue.' in queue_lines
     assert 'Coming up next: reviewer-1, manager-1' in queue_lines

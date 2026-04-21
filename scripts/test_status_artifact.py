@@ -233,6 +233,44 @@ def test_closure_active_requires_more_than_merely_being_quiet(state_dir: Path) -
     assert artifact['closure']['quiet'] is True, artifact
     assert artifact['closure']['handoffSafe'] is False, artifact
     assert artifact['closure']['initiativePhase'] == 'review-manager', artifact
+    assert artifact['closure']['reason'] == 'initiative is in a closure-phase or closure remediation/passback follow-up', artifact
+
+
+def test_closure_active_reason_covers_proof_hardening_even_when_runtime_is_idle_clean(state_dir: Path) -> None:
+    initiative_state = state_dir / 'initiatives' / 'closure-proof-hardening' / 'state.json'
+    write_json(initiative_state, {
+        'initiativeId': 'closure-proof-hardening',
+        'phase': 'implementation',
+        'branch': 'feature/agentrunner/closure-handoff-state-semantics',
+        'base': 'master',
+        'remediation': {
+            'activeAttempt': {
+                'attempt': 2,
+                'reason': 'Proof hardening is still required before closure review can safely resume.',
+            },
+        },
+    })
+    write_json(state_dir / 'state.json', {
+        'project': 'agentrunner',
+        'running': False,
+        'updatedAt': (FIXED_NOW - timedelta(minutes=1)).isoformat(),
+        'current': None,
+        'initiative': {
+            'initiativeId': 'closure-proof-hardening',
+            'phase': 'implementation',
+            'statePath': str(initiative_state),
+        },
+    })
+    write_json(state_dir / 'queue.json', [])
+
+    artifact = build_status_artifact(state_dir, queue_preview=2, tick_count=3, now=FIXED_NOW)
+
+    assert artifact['status'] == 'idle-clean', artifact
+    assert artifact['closure']['state'] == 'closure-active', artifact
+    assert artifact['closure']['quiet'] is True, artifact
+    assert artifact['closure']['handoffSafe'] is False, artifact
+    assert artifact['closure']['initiativePhase'] == 'implementation', artifact
+    assert artifact['closure']['reason'] == 'initiative is in a closure-phase or closure remediation/passback follow-up', artifact
 
 
 def test_stale_and_partial_runtime_cases(state_dir: Path) -> None:
@@ -393,6 +431,7 @@ def main() -> int:
         test_active_queue_and_initiative_summary(root / 'active')
         test_missing_and_malformed_optional_files_warn_not_crash(root / 'partial')
         test_closure_active_requires_more_than_merely_being_quiet(root / 'closure-active')
+        test_closure_active_reason_covers_proof_hardening_even_when_runtime_is_idle_clean(root / 'closure-proof-hardening')
         test_stale_and_partial_runtime_cases(root / 'stale')
         test_live_repo_can_outrank_stale_blocked_result_when_runtime_is_otherwise_clean(root / 'repo-clean')
         test_live_repo_on_base_can_outrank_stale_blocked_merger_tail_when_feature_is_already_merged(root / 'repo-on-base')

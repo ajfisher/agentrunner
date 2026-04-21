@@ -76,6 +76,13 @@ def test_routed_status_queue_and_initiatives_use_disposable_operator_artifact(tm
                 "phase": "implementation",
                 "currentSubtaskId": "smoke-proof",
             },
+            "closure": {
+                "state": "execution-active",
+                "handoffSafe": False,
+                "quiet": False,
+                "initiativePhase": "implementation",
+                "reason": "initiative is still in design/execution or runtime work remains before closure is settled",
+            },
             "lastCompleted": {
                 "queueItemId": "architect-plan",
                 "role": "architect",
@@ -118,6 +125,7 @@ def test_routed_status_queue_and_initiatives_use_disposable_operator_artifact(tm
         "status": [
             "project: demo",
             "status: ACTIVE | developer-smoke | developer | feature/agentrunner/real-cli-surface | age=19s",
+            "closure: execution-active | handoff-safe=false | quiet=false | phase=implementation | initiative is still in design/execution or runtime work remains before closure is settled",
             "reconciliation: active | winner=source=live_runtime, rule=active_run, p5 | runtime lock and active run details agree on a live in-flight item | reasons=1",
             "operator hierarchy: canonical_runtime_reconciliation v2 | integrity_conflicts > stale_active_runtime > live_repo_clean_overrides_stale_blocked_ar… > last_completed_blocked > active_runtime_lock > queued_backlog_without_active_run > idle_clean",
         ],
@@ -246,6 +254,7 @@ def test_status_rebuild_recovers_stale_blocked_merger_tail_when_repo_is_already_
 
     assert result.returncode == 0, result.stderr
     assert "status: IDLE-CLEAN" in result.stdout
+    assert "closure: idle-clean | handoff-safe=true | quiet=true | runtime is quiet and no non-terminal initiative closure work remains" in result.stdout
     assert "reconciliation: idle-clean | winner=source=live_repo, rule=live_repo_clean_overrides_stale_blocked_artifact, p3 | live repo truth is clean/current, so it outranks a stale blocked completion artifact | reasons=1" in result.stdout
     assert "operator hierarchy: canonical_runtime_reconciliation v2 | integrity_conflicts > stale_active_runtime > live_repo_clean_overrides_stale_blocked_ar… > last_completed_blocked > active_runtime_lock > queued_backlog_without_active_run > idle_clean" in result.stdout
     assert "last completed: merger-blocked | merger | blocked" in result.stdout
@@ -289,6 +298,7 @@ def test_status_rebuild_keeps_repo_conflict_blocked_instead_of_auto_cleaning(tmp
 
     assert result.returncode == 0, result.stderr
     assert "status: BLOCKED" in result.stdout
+    assert "closure: blocked | handoff-safe=false | quiet=true | operator status is blocked/conflicted, so the initiative is not handoff-safe" in result.stdout
     assert "reconciliation: blocked | winner=source=result_artifacts, rule=last_completed_blocked, p4 | most recent completed item ended blocked | reasons=1" in result.stdout
     assert "operator hierarchy: canonical_runtime_reconciliation v2 | integrity_conflicts > stale_active_runtime > live_repo_clean_overrides_stale_blocked_ar… > last_completed_blocked > active_runtime_lock > queued_backlog_without_active_run > idle_clean" in result.stdout
     assert "last completed: merger-blocked | merger | blocked" in result.stdout

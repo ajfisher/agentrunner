@@ -17,6 +17,7 @@ try:
     from .operator_data import (
         build_status_artifact,
         clip,
+        snapshot_closure,
         snapshot_current,
         snapshot_initiative,
         snapshot_last_completed,
@@ -35,6 +36,7 @@ except ImportError:  # pragma: no cover - script-mode fallback
     from operator_data import (
         build_status_artifact,
         clip,
+        snapshot_closure,
         snapshot_current,
         snapshot_initiative,
         snapshot_last_completed,
@@ -111,6 +113,22 @@ def format_initiative_summary_line(artifact: dict[str, Any]) -> str:
     if initiative.get("base"):
         bits.append(f"base={clip(initiative.get('base'), 24)}")
     return f"initiative: {' | '.join(bits)}"
+
+
+def format_closure_line(artifact: dict[str, Any]) -> str:
+    closure = snapshot_closure(artifact)
+    if not closure:
+        return "closure: -"
+    bits = [clip(closure.get("state") or "-", 24)]
+    if closure.get("handoffSafe") is not None:
+        bits.append(f"handoff-safe={str(bool(closure.get('handoffSafe'))).lower()}")
+    if closure.get("quiet") is not None:
+        bits.append(f"quiet={str(bool(closure.get('quiet'))).lower()}")
+    if closure.get("initiativePhase"):
+        bits.append(f"phase={clip(closure.get('initiativePhase'), 24)}")
+    if closure.get("reason"):
+        bits.append(clip(closure.get("reason"), 120))
+    return f"closure: {' | '.join(bits)}"
 
 
 def format_last_completed_line(artifact: dict[str, Any]) -> str:
@@ -218,6 +236,7 @@ def format_status_lines(artifact: dict[str, Any], *, queue_preview: int = 3) -> 
         lines.append(f"updated: {clip(updated_at, 32)}")
     lines.extend(format_queue_summary_lines(artifact, queue_preview=queue_preview, include_items=True))
     lines.append(format_initiative_summary_line(artifact))
+    lines.append(format_closure_line(artifact))
     lines.append(format_last_completed_line(artifact))
     runtime_line = format_runtime_line(artifact)
     if runtime_line:
