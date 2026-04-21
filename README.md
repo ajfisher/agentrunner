@@ -280,12 +280,14 @@ Useful variants:
 
 Use the routed top-level CLI for operator-facing initiative kickoff; keep the direct script path as a compatibility/lower-level option.
 
+Canonical branch contract: `main` is the steady-state base branch for new work. Any remaining `master` references in the docs are preserved only where they are part of historical proof artifacts.
+
 ```bash
 python3 -m agentrunner brief \
   --project agentrunner \
   --initiative-id agentrunner-enqueue-cli \
   --branch feature/agentrunner/enqueue-cli \
-  --base master \
+  --base main \
   --manager-brief-path /path/to/brief.json
 ```
 
@@ -296,7 +298,7 @@ python3 agentrunner/scripts/enqueue_initiative.py \
   --project agentrunner \
   --initiative-id agentrunner-enqueue-cli \
   --branch feature/agentrunner/enqueue-cli \
-  --base master \
+  --base main \
   --manager-brief-path /path/to/brief.json
 ```
 
@@ -307,7 +309,7 @@ python3 -m agentrunner brief \
   --project agentrunner \
   --initiative-id docs-refresh \
   --branch feature/agentrunner/docs-refresh \
-  --base master \
+  --base main \
   --manager-brief-json '{
     "title": "Refresh docs",
     "objective": "Clarify operator docs for the enqueue flow.",

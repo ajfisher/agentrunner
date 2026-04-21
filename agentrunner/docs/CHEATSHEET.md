@@ -236,7 +236,7 @@ python3 -m agentrunner brief \
   --project agentrunner \
   --initiative-id my-new-thing \
   --branch feature/agentrunner/my-new-thing \
-  --base master \
+  --base main \
   --manager-brief-path /path/to/brief.json \
   --poll-after-enqueue
 ```
@@ -248,7 +248,7 @@ python3 agentrunner/scripts/enqueue_initiative.py \
   --project agentrunner \
   --initiative-id my-new-thing \
   --branch feature/agentrunner/my-new-thing \
-  --base master \
+  --base main \
   --manager-brief-path /path/to/brief.json \
   --poll-after-enqueue
 ```

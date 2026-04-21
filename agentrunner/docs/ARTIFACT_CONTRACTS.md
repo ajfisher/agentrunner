@@ -179,11 +179,11 @@ For `kind=ambiguous_readiness`, emit `mergeBlocker.stopConditions` with concise 
 {
   "status": "ok",
   "role": "merger",
-  "summary": "Fast-forward merged feature/picv_spike/replay-mode into master.",
+  "summary": "Fast-forward merged feature/picv_spike/replay-mode into main.",
   "merged": true,
   "commit": "deadbeef1234",
   "checks": [
-    {"name": "git diff --stat master...feature/picv_spike/replay-mode", "status": "ok"},
+    {"name": "git diff --stat main...feature/picv_spike/replay-mode", "status": "ok"},
     {"name": "git merge --ff-only feature/picv_spike/replay-mode", "status": "ok"}
   ],
   "writtenAt": "2026-04-04T14:45:00+11:00"
@@ -196,6 +196,8 @@ For ff-only blocks caused by divergence / non-fast-forward state, operator-facin
 
 ## Handoff artifact contract
 A handoff artifact is written to `HANDOFF_PATH` when a Reviewer requests follow-up Developer work.
+
+Canonical branch contract: use `main` as the steady-state `base` branch in new artifacts and examples. Any surviving `master` strings should only appear inside intentionally preserved historical proof notes.
 
 ## Review findings artifact
 When mechanics inserts a follow-up Developer item, it may also materialize a stable review-findings artifact under the project state directory, e.g.:
@@ -240,7 +242,7 @@ A handoff artifact must include:
   "project": "picv_spike",
   "repoPath": "/home/openclaw/projects/picv_spike",
   "branch": "feature/picv_spike/replay-mode",
-  "base": "master",
+  "base": "main",
   "goal": "Document replay mode in README.",
   "checks": ["./check.sh"],
   "findings": [

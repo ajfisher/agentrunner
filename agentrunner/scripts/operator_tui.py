@@ -86,7 +86,7 @@ SAMPLE_SNAPSHOT: dict[str, object] = {
         "phase": "implementation",
         "currentSubtaskId": "operator-tui-readonly-surface",
         "branch": "feature/agentrunner/operator-tui",
-        "base": "master",
+        "base": "main",
         "statePath": "/tmp/initiative-state.json",
     },
     "lastCompleted": {
@@ -98,7 +98,7 @@ SAMPLE_SNAPSHOT: dict[str, object] = {
         "runId": "run-sample-0",
         "sessionKey": "session-sample-0",
         "branch": "feature/agentrunner/operator-tui",
-        "base": "master",
+        "base": "main",
     },
     "warnings": [
         {

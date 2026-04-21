@@ -558,7 +558,7 @@ Put differently: a present `state.initiative` means “this is the initiative op
       "status-helper-2"
     ],
     "branch": "feature/agentrunner/status-helper",
-    "base": "master"
+    "base": "main"
   }
 }
 ```
@@ -592,7 +592,7 @@ A planned subtask should become a normal queue item with additional initiative m
   "role": "developer",
   "goal": "Create a small CLI helper that prints a compact state snapshot.",
   "branch": "feature/agentrunner/status-helper",
-  "base": "master",
+  "base": "main",
   "checks": ["python3 -m py_compile agentrunner/scripts/status_audit.py"],
   "contextFiles": ["agentrunner/scripts/status_audit.py"],
   "initiative": {
@@ -900,7 +900,7 @@ Operationally:
   "completedSubtasks": [],
   "pendingSubtasks": ["status-helper-1", "status-helper-2"],
   "branch": "feature/agentrunner/status-helper",
-  "base": "master"
+  "base": "main"
 }
 ```
 
@@ -955,7 +955,7 @@ When mechanics inserts a follow-up Developer item due to Reviewer block:
   "role": "developer",
   "goal": "Address reviewer findings and re-run checks.",
   "branch": "feature/agentrunner/status-helper",
-  "base": "master",
+  "base": "main",
   "initiative": {
     "initiativeId": "agentrunner-status-helper",
     "subtaskId": "status-helper-1",
