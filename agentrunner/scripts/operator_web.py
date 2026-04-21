@@ -452,7 +452,10 @@ def _watch_group_state(snapshot: dict[str, Any]) -> WebQuestionGroup:
     warnings = _as_list(snapshot.get("warnings"), label="snapshot.warnings")
     status = str(snapshot.get("status") or "unknown")
     if warnings:
-        summary = f"{len(warnings)} warning{'s' if len(warnings) != 1 else ''} need attention."
+        summary = (
+            f"{len(warnings)} warning{'s' if len(warnings) != 1 else ''} "
+            f"{'needs' if len(warnings) == 1 else 'need'} attention."
+        )
         tone = _warnings_chip(snapshot).tone
     elif status == "blocked":
         summary = "Work is blocked and needs intervention."
@@ -560,6 +563,11 @@ def render_html(model: OperatorPageModel) -> str:
     def esc(value: Any) -> str:
         return html.escape(str(value), quote=True)
 
+    intro_copy = (
+        "A read-only watch surface for the current run, queued stack, recent completion, "
+        "and any blocked, waiting, or handoff-safety signals."
+    )
+
     initial_payload = page_model_payload(model)
     initial_payload_json = _json_for_html_script(initial_payload)
     refresh_ms = 5000
@@ -597,10 +605,12 @@ def render_html(model: OperatorPageModel) -> str:
     header {{ padding: 1.25rem; border-bottom: 1px solid var(--border); background: rgba(17,24,39,.9); }}
     main {{ padding: 1.25rem; display: grid; gap: 1rem; }}
     .meta {{ display: grid; gap: .35rem; color: var(--muted); }}
-    .hero {{ display: grid; gap: .85rem; background: var(--panel-soft); border: 1px solid var(--border); border-radius: 16px; padding: 1rem; }}
-    .hero-copy {{ display: grid; gap: .35rem; }}
-    .hero-summary {{ font-size: 1.05rem; font-weight: 600; line-height: 1.4; }}
+    .hero {{ display: grid; gap: 1rem; background: linear-gradient(180deg, rgba(15, 23, 42, .96), rgba(11, 18, 32, .92)); border: 1px solid var(--border); border-radius: 16px; padding: 1rem; }}
+    .hero-copy {{ display: grid; gap: .4rem; }}
+    .hero-kicker {{ color: var(--accent); text-transform: uppercase; letter-spacing: .08em; font-size: .78rem; font-weight: 800; }}
+    .hero-summary {{ font-size: 1.08rem; font-weight: 700; line-height: 1.45; max-width: 70ch; }}
     .hero-updated {{ color: var(--muted); }}
+    .hero-intro {{ color: var(--muted); line-height: 1.5; max-width: 72ch; }}
     .chip-row {{ display: flex; flex-wrap: wrap; gap: .55rem; }}
     .chip {{ display: inline-flex; align-items: center; border-radius: 999px; padding: .35rem .7rem; font-size: .87rem; font-weight: 700; letter-spacing: .01em; border: 1px solid transparent; }}
     .chip-neutral {{ background: var(--chip-neutral-bg); color: var(--chip-neutral-text); border-color: rgba(148, 163, 184, .24); }}
@@ -611,12 +621,20 @@ def render_html(model: OperatorPageModel) -> str:
     .card-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }}
     .question-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; }}
     .card {{ background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 1rem; }}
-    .watch-card {{ display: grid; gap: .75rem; }}
-    .watch-summary {{ font-size: 1rem; font-weight: 650; line-height: 1.45; }}
-    .watch-card-good {{ border-color: rgba(34, 197, 94, .35); }}
-    .watch-card-info {{ border-color: rgba(56, 189, 248, .35); }}
-    .watch-card-warn {{ border-color: rgba(245, 158, 11, .35); }}
-    .watch-card-danger {{ border-color: rgba(248, 113, 113, .40); }}
+    .watch-card {{ display: grid; gap: .8rem; position: relative; overflow: hidden; }}
+    .watch-card::before {{ content: ''; position: absolute; inset: 0 auto 0 0; width: 4px; background: rgba(148, 163, 184, .5); }}
+    .watch-header {{ display: grid; gap: .25rem; }}
+    .watch-eyebrow {{ color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-size: .76rem; font-weight: 800; }}
+    .watch-summary {{ font-size: 1rem; font-weight: 700; line-height: 1.45; }}
+    .watch-detail {{ color: var(--muted); line-height: 1.45; }}
+    .watch-card-good {{ border-color: rgba(34, 197, 94, .35); background: linear-gradient(180deg, rgba(34, 197, 94, .07), rgba(17, 24, 39, 1) 45%); }}
+    .watch-card-good::before {{ background: rgba(34, 197, 94, .85); }}
+    .watch-card-info {{ border-color: rgba(56, 189, 248, .35); background: linear-gradient(180deg, rgba(56, 189, 248, .07), rgba(17, 24, 39, 1) 45%); }}
+    .watch-card-info::before {{ background: rgba(56, 189, 248, .85); }}
+    .watch-card-warn {{ border-color: rgba(245, 158, 11, .35); background: linear-gradient(180deg, rgba(245, 158, 11, .07), rgba(17, 24, 39, 1) 45%); }}
+    .watch-card-warn::before {{ background: rgba(245, 158, 11, .85); }}
+    .watch-card-danger {{ border-color: rgba(248, 113, 113, .40); background: linear-gradient(180deg, rgba(248, 113, 113, .08), rgba(17, 24, 39, 1) 45%); }}
+    .watch-card-danger::before {{ background: rgba(248, 113, 113, .9); }}
     .banner-stack {{ display: grid; gap: .75rem; }}
     .banner {{ background: var(--banner); border: 1px solid var(--banner-border); border-radius: 12px; padding: .85rem 1rem; font-weight: 600; }}
     h1, h2 {{ margin: 0 0 .75rem 0; }}
@@ -636,8 +654,10 @@ def render_html(model: OperatorPageModel) -> str:
   <main>
     <section class=\"hero\">
       <div class=\"hero-copy\">
+        <div class=\"hero-kicker\">Operator watch surface</div>
         <div class=\"hero-summary\" id=\"status-summary\"></div>
         <div class=\"hero-updated\" id=\"updated-summary\"></div>
+        <div class=\"hero-intro\">{esc(intro_copy)}</div>
       </div>
       <div class=\"chip-row\" id=\"page-chips\"></div>
     </section>
@@ -672,6 +692,24 @@ def render_html(model: OperatorPageModel) -> str:
       return text.charAt(0).toUpperCase() + text.slice(1);
     }}
 
+    function watchEyebrow(group) {{
+      const key = String((group && group.key) || '');
+      if (key === 'now') return 'Live execution focus';
+      if (key === 'next') return 'Queued stack';
+      if (key === 'recent') return 'Recent completion';
+      if (key === 'state') return 'Attention + handoff';
+      return 'Operator view';
+    }}
+
+    function watchDetail(group) {{
+      const key = String((group && group.key) || '');
+      if (key === 'now') return 'Foreground the run in progress so an operator can see who is active and which branch or subtask currently has the baton.';
+      if (key === 'next') return 'Show the bounded queue stack so the next few follow-up turns are understandable without reading raw mechanics files.';
+      if (key === 'recent') return 'Keep the most recent completion visible so handoffs and progress do not disappear the moment the next run starts.';
+      if (key === 'state') return 'Explain blocked, waiting, warning, and handoff-safe cues so a quiet queue is not mistaken for a healthy finish.';
+      return 'Read-only snapshot summary.';
+    }}
+
     function renderPage(model, refreshLabel) {{
       document.title = `AgentRunner operator · ${{model.project}}`;
       document.getElementById('page-title').textContent = `AgentRunner operator · ${{model.project}}`;
@@ -703,7 +741,7 @@ def render_html(model: OperatorPageModel) -> str:
         const lines = group.lines && group.lines.length
           ? group.lines.map((line) => `<li>${{escapeHtml(line)}}</li>`).join('')
           : '<li>none</li>';
-        return `<section class=\"card watch-card watch-card-${{escapeHtml(group.tone || 'neutral')}}\"><h2>${{escapeHtml(group.title)}}</h2><div class=\"watch-summary\">${{escapeHtml(group.summary || '')}}</div><ul>${{lines}}</ul></section>`;
+        return `<section class=\"card watch-card watch-card-${{escapeHtml(group.tone || 'neutral')}}\"><div class=\"watch-header\"><div class=\"watch-eyebrow\">${{escapeHtml(watchEyebrow(group))}}</div><h2>${{escapeHtml(group.title)}}</h2></div><div class=\"watch-summary\">${{escapeHtml(group.summary || '')}}</div><div class=\"watch-detail\">${{escapeHtml(watchDetail(group))}}</div><ul>${{lines}}</ul></section>`;
       }}).join('');
       document.getElementById('page-watch-groups').innerHTML = watchGroups;
 
@@ -921,7 +959,7 @@ def render_html(model: OperatorPageModel) -> str:
             key: 'state',
             title: 'What needs attention?',
             summary: warnings.length
-              ? `${{warnings.length}} warning${{warnings.length === 1 ? '' : 's'}} need attention.`
+              ? `${{warnings.length}} warning${{warnings.length === 1 ? '' : 's'}} ${{warnings.length === 1 ? 'needs' : 'need'}} attention.`
               : (status === 'blocked'
                 ? 'Work is blocked and needs intervention.'
                 : (closure && closure.handoffSafe === false ? 'Queue is quiet, but handoff is not safe yet.' : 'State and risk signals are quiet.')),

@@ -98,7 +98,7 @@ def test_page_model_is_derived_from_canonical_snapshot_contract() -> None:
     assert payload['watchGroups'][0]['summary'] == 'Developer is working on developer-1.'
     assert payload['watchGroups'][1]['summary'] == 'Next up: reviewer-1.'
     assert payload['watchGroups'][2]['summary'] == 'Most recently finished: architect-1 (ok).'
-    assert payload['watchGroups'][3]['summary'] == '1 warning need attention.'
+    assert payload['watchGroups'][3]['summary'] == '1 warning needs attention.'
     queue_lines = payload['watchGroups'][1]['lines']
     assert '2 items are waiting in the queue.' in queue_lines
     assert 'Coming up next: reviewer-1, manager-1' in queue_lines
@@ -123,8 +123,13 @@ def test_rendered_html_mentions_the_api_contract_not_a_second_runtime() -> None:
     assert 'AgentRunner operator · demo' in html
     assert '/v1/operator/snapshot' in html
     assert 'Active — developer is working on developer-1 with 2 more queued.' in html
+    assert 'Operator watch surface' in html
+    assert 'A read-only watch surface for the current run, queued stack, recent completion, and any blocked, waiting, or handoff-safety signals.' in html
     assert 'What is happening now?' in html
-    assert 'What is next?' in html
+    assert 'Live execution focus' in html
+    assert 'Queued stack' in html
+    assert 'Attention + handoff' in html
+    assert 'Show the bounded queue stack so the next few follow-up turns are understandable without reading raw mechanics files.' in html
     assert 'Most recently finished: architect-1 (ok).' in html
     assert 'overall active' in html
     assert 'running · queue depth 2' in html
