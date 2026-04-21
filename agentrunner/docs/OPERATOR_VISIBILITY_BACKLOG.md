@@ -21,6 +21,22 @@ The next usability layer should make it easy to answer:
 - Is anything blocked or stale?
 - What just happened?
 
+## Closure/handoff semantic note
+
+Operator surfaces must distinguish four different truths that can otherwise collapse into the same misleading “looks quiet” impression:
+
+- **execution activity** — normal design/implementation/review work is still happening (`closure.state=execution-active`)
+- **closure activity** — feature work may be done enough that runtime/queue can briefly look quiet, but non-terminal closure follow-up still remains (`closure.state=closure-active`)
+- **blocked state** — operator-visible state is blocked/conflicted and handoff is unsafe (`closure.state=blocked`)
+- **true clean idle** — runtime is quiet *and* no non-terminal closure work remains (`closure.state=idle-clean`, `handoffSafe=true`)
+
+Concrete regression case to keep proving:
+- feature work is complete
+- a Manager closure pass sends the initiative back for Architect replan / pytest-doc proof hardening
+- queue depth can briefly hit zero before the next handoff item lands
+- operator/watcher surfaces must still report `closure-active` or otherwise clearly show `handoffSafe=false`
+- only once the initiative reaches terminal success and runtime is quiet should the surface reconcile to true clean idle
+
 ## Desired principle
 
 Define **one canonical operator-facing status artifact** first, then let all surfaces consume that.

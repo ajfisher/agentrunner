@@ -261,6 +261,67 @@ def test_status_rebuild_recovers_stale_blocked_merger_tail_when_repo_is_already_
 
 
 
+def test_watch_surface_keeps_quiet_replan_handoff_visible_as_not_handoff_safe(tmp_path: Path) -> None:
+    state_dir = tmp_path / "runtime"
+    write_json(
+        state_dir / "operator_status.json",
+        {
+            "project": "agentrunner",
+            "status": "idle-clean",
+            "updatedAt": "2026-04-21T02:10:00Z",
+            "current": None,
+            "queue": {"depth": 0, "nextIds": [], "preview": []},
+            "initiative": {
+                "initiativeId": "closure-replan-handoff",
+                "phase": "replan-architect",
+                "currentSubtaskId": None,
+            },
+            "closure": {
+                "state": "closure-active",
+                "handoffSafe": False,
+                "quiet": True,
+                "initiativePhase": "replan-architect",
+                "reason": "initiative is in a closure-phase or closure remediation/passback follow-up",
+            },
+            "lastCompleted": {
+                "queueItemId": "manager-closure-review",
+                "role": "manager",
+                "status": "ok",
+                "summary": "Feature work is complete, but pytest-doc proof hardening must be replanned through Architect.",
+                "endedAt": "2026-04-21T02:09:00Z",
+            },
+            "resultHint": "Quiet queue does not mean the initiative is handoff-safe while replan-architect remains active.",
+            "warnings": [],
+            "reconciliation": {
+                "decision": "idle-clean",
+                "summary": "runtime is quiet, but closure follow-up remains",
+                "reasons": [],
+                "policy": {
+                    "name": "canonical_runtime_reconciliation",
+                    "version": 2,
+                    "precedenceOrder": [
+                        "integrity_conflicts",
+                        "stale_active_runtime",
+                        "live_repo_clean_overrides_stale_blocked_artifact",
+                        "last_completed_blocked",
+                        "active_runtime_lock",
+                        "queued_backlog_without_active_run",
+                        "idle_clean"
+                    ],
+                },
+            },
+        },
+    )
+
+    result = run_module("watch", "--state-dir", str(state_dir), "--count", "1", "--interval", "0")
+
+    assert result.returncode == 0, result.stderr
+    assert "status: IDLE-CLEAN" in result.stdout
+    assert "closure: closure-active | handoff-safe=false | quiet=true | phase=replan-architect | initiative is in a closure-phase or closure remediation/passback follow-up" in result.stdout
+    assert "last completed: manager-closure-review | manager | ok | Feature work is complete, but pytest-doc proof hardening must be replanned through Architect." in result.stdout
+
+
+
 def test_status_rebuild_keeps_repo_conflict_blocked_instead_of_auto_cleaning(tmp_path: Path) -> None:
     repo_path = tmp_path / "repo"
     state_dir = tmp_path / "runtime"
