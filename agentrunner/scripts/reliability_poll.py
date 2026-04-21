@@ -6,6 +6,11 @@ import json
 import subprocess
 from pathlib import Path
 
+try:
+    from .status_artifact import build_status_artifact
+except ImportError:  # pragma: no cover - script-mode fallback
+    from status_artifact import build_status_artifact
+
 ROOT = Path('/home/openclaw/projects/agentrunner')
 INVOKER = ROOT / 'agentrunner/scripts/invoker.py'
 
@@ -23,7 +28,20 @@ def should_poll_project(state_dir: Path) -> bool:
     state = load_json(state_dir / 'state.json', {})
     queue = load_json(state_dir / 'queue.json', [])
     running = bool(state.get('running'))
-    return running or bool(queue)
+    if running or bool(queue):
+        return True
+
+    try:
+        artifact = build_status_artifact(state_dir)
+    except Exception:
+        return False
+
+    closure = artifact.get('closure') if isinstance(artifact, dict) else None
+    if not isinstance(closure, dict):
+        return False
+
+    handoff_safe = closure.get('handoffSafe')
+    return handoff_safe is False
 
 
 def canonical_project_name(state_dir: Path) -> str:

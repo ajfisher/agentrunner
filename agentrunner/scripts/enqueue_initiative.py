@@ -212,8 +212,8 @@ def active_initiative_conflict(state: dict, *, initiative_id: str, state_dir: Pa
         return f'state.json already points at initiative {initiative_id}'
 
     artifact = build_status_artifact(state_dir)
-    state_phase = state_pointer.get('phase')
-    if artifact.get('status') == 'idle-clean' and state_phase in ('closure-merger', 'completed', 'closed'):
+    closure = artifact.get('closure') if isinstance(artifact, dict) else None
+    if isinstance(closure, dict) and closure.get('handoffSafe') is True:
         return None
 
     return f'state.json already points at active initiative {active_id}; refusing to enqueue {initiative_id}'

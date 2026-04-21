@@ -248,6 +248,34 @@ def load_role_prompt(role: str) -> str:
     return (ROOT / f'agentrunner/prompts/{role}.txt').read_text().strip() + '\n'
 
 
+def run_initiative_coordinator(state_dir: str) -> bool:
+    proc = subprocess.run(
+        ['python3', str(ROOT / 'agentrunner/scripts/initiative_coordinator.py'), '--state-dir', state_dir],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        debug_log(f'[invoker] initiative coordinator rc={proc.returncode}: {(proc.stderr or proc.stdout).strip()}')
+        return False
+    try:
+        payload = json.loads((proc.stdout or '').strip() or '{}')
+    except Exception:
+        debug_log(f'[invoker] initiative coordinator returned non-JSON stdout: {(proc.stdout or '').strip()}')
+        return False
+    return bool(payload.get('changed'))
+
+
+def current_closure_snapshot(state_dir: str | Path) -> dict:
+    try:
+        artifact = build_status_artifact(Path(state_dir))
+    except Exception as e:
+        debug_log(f'[invoker] failed to build closure snapshot: {e}')
+        return {}
+    closure = artifact.get('closure') if isinstance(artifact, dict) else None
+    return closure if isinstance(closure, dict) else {}
+
+
 def ensure_initiative_paths(state_dir: str, initiative: dict | None) -> dict:
     if not isinstance(initiative, dict):
         return {}
@@ -969,16 +997,23 @@ def main() -> int:
 
     if state.get('running') and state.get('current'):
         poll_completion(state_dir, state)
-        subprocess.run(['python3', str(ROOT / 'agentrunner/scripts/initiative_coordinator.py'), '--state-dir', state_dir], check=False)
+        run_initiative_coordinator(state_dir)
         refresh_operator_status(state_dir)
         return 0
 
     queue = load_json(queue_path, [])
     if not queue:
-        state['updatedAt'] = iso_now()
-        save_json(state_path, state)
-        refresh_operator_status(state_dir)
-        return 0
+        closure = current_closure_snapshot(state_dir)
+        if closure.get('handoffSafe') is False:
+            changed = run_initiative_coordinator(state_dir)
+            if changed:
+                state = load_json(state_path, state)
+                queue = load_json(queue_path, [])
+        if not queue:
+            state['updatedAt'] = iso_now()
+            save_json(state_path, state)
+            refresh_operator_status(state_dir)
+            return 0
 
     item = queue[0]
     qid = str(item.get('id'))

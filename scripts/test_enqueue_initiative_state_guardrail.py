@@ -64,8 +64,14 @@ def assert_clean_tail_enqueue_allowed(*, repo_path: Path, state_dir: Path, brief
     subprocess.run(['git', 'merge', '--ff-only', 'feature/agentrunner/clear-stale-initiative-pointer'], cwd=runtime_repo, check=True, capture_output=True, text=True)
 
     state = json.loads((state_dir / 'state.json').read_text())
+    state['initiative']['phase'] = 'completed'
     state['lastCompleted']['queueItem']['repo_path'] = str(runtime_repo)
     (state_dir / 'state.json').write_text(json.dumps(state, indent=2) + '\n')
+
+    initiative_state_path = Path(state['initiative']['statePath'])
+    initiative_state = json.loads(initiative_state_path.read_text())
+    initiative_state['phase'] = 'completed'
+    initiative_state_path.write_text(json.dumps(initiative_state, indent=2) + '\n')
 
     cmd = [
         sys.executable,
@@ -124,6 +130,12 @@ def main() -> int:
             brief_path=brief_path,
         )
 
+        write_json(state_dir / 'initiatives' / 'closed-initiative' / 'state.json', {
+            'initiativeId': 'closed-initiative',
+            'phase': 'closure-merger',
+            'branch': 'feature/agentrunner/clear-stale-initiative-pointer',
+            'base': 'master',
+        })
         write_json(state_path, {
             'project': 'agentrunner',
             'running': False,
@@ -163,6 +175,65 @@ def main() -> int:
             expected='state.json already points at active initiative closed-initiative; refusing to enqueue fresh-initiative',
             brief_path=brief_path,
         )
+
+        write_json(state_dir / 'initiatives' / 'replan-initiative' / 'state.json', {
+            'initiativeId': 'replan-initiative',
+            'phase': 'replan-architect',
+            'branch': 'feature/agentrunner/replan-still-live',
+            'base': 'master',
+        })
+        write_json(state_path, {
+            'project': 'agentrunner',
+            'running': False,
+            'current': None,
+            'initiative': {
+                'initiativeId': 'replan-initiative',
+                'phase': 'replan-architect',
+                'statePath': str(state_dir / 'initiatives/replan-initiative/state.json'),
+            },
+            'updatedAt': '2026-04-19T00:05:00+00:00',
+        })
+        write_json(queue_path, [])
+        assert_conflicting_enqueue_blocked(
+            repo_path=repo_path,
+            state_dir=state_dir,
+            initiative_id='fresh-initiative',
+            expected='state.json already points at active initiative replan-initiative; refusing to enqueue fresh-initiative',
+            brief_path=brief_path,
+        )
+
+        write_json(state_path, {
+            'project': 'agentrunner',
+            'running': False,
+            'current': None,
+            'initiative': {
+                'initiativeId': 'closed-initiative',
+                'phase': 'closure-merger',
+                'statePath': str(state_dir / 'initiatives/closed-initiative/state.json'),
+            },
+            'lastCompleted': {
+                'queueItemId': 'closed-initiative-merger',
+                'role': 'merger',
+                'queueItem': {
+                    'id': 'closed-initiative-merger',
+                    'project': 'agentrunner',
+                    'role': 'merger',
+                    'repo_path': str(repo_path),
+                    'branch': 'feature/agentrunner/clear-stale-initiative-pointer',
+                    'base': 'master',
+                    'initiative': {
+                        'initiativeId': 'closed-initiative',
+                        'phase': 'closure-merger',
+                        'branch': 'feature/agentrunner/clear-stale-initiative-pointer',
+                        'base': 'master',
+                    },
+                },
+                'resultPath': str(state_dir / 'results/closed-initiative-merger.json'),
+                'summary': 'Merge blocked.',
+                'status': 'blocked',
+            },
+            'updatedAt': '2026-04-19T00:10:00+00:00',
+        })
 
         assert_clean_tail_enqueue_allowed(
             repo_path=repo_path,
