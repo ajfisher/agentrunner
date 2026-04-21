@@ -26,9 +26,11 @@ http://127.0.0.1:8765/operator?project=<project>
 
 What to verify:
 - the page renders the same operator snapshot sections the other adapters use (`status`, `current`, `queue`, `initiative`, `lastCompleted`, `warnings`, `reconciliation`, `updatedAt`)
+- the page is readable as one grouped watch surface: now, next up, recent completion, and operator cues are visible without navigating to a second page
 - the page makes the auto-refresh behavior visible rather than silently changing underneath the operator
 - after one polling interval, the refresh-status line updates and the page continues to reflect the latest local snapshot
 - the page remains read-only; there are no enqueue/retry/approve/write controls
+- the waiting / blocked / handoff-safe cues are understandable enough that a quiet screen does not get misread as "done"
 
 ## JSON cross-check
 
@@ -61,6 +63,7 @@ The browser surface is intentionally conservative:
 - local-first
 - read-only
 - polling the canonical snapshot instead of maintaining its own authority
+- grouped as a single-page watch surface so the operator can scan now / next up / recent completion in one place
 - easy to remove or ignore without affecting mechanics
 
 If a future remote dashboard is needed, put an authenticated transport/proxy in front of the local API instead of widening the raw browser/API surface into a public control plane.

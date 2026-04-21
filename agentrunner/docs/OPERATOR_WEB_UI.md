@@ -39,6 +39,7 @@ Today that HTML surface is intentionally simple:
 - loopback-bound by default because it rides on the same local API server
 - auto-refreshing in-browser on a short timer (currently 5s) by polling the canonical snapshot endpoint again
 - explicitly read-only, with no control or mutation affordances added in the page layer
+- organized as a single-page watch surface so an operator can read now / next up / recent completion without tabbing across separate browser views
 
 This keeps the launch path explicit and narrow:
 - reuse the existing routed API entrypoint
@@ -79,6 +80,23 @@ Any browser-facing UI should treat the nested snapshot payload as the contract a
 - `updatedAt`
 
 Those fields are shared with the text CLI, local API, local TUI, and optional MQTT adapter so all operator surfaces stay aligned.
+
+## Intended watch-surface cues
+
+The browser page should read like a grouped watch surface rather than a pile of raw fields.
+A good operator scan order is:
+- **now** — current status + current item summary
+- **next up** — queue depth and next queued ids/items
+- **recent completion** — the last completed queue item and summary
+- **operator cues** — warnings, reconciliation, and freshness / closure hints
+
+Three cues matter enough to make explicit in the browser copy and layout:
+- **waiting** means the system is not actively executing a queue item right this second, but the operator should still read queue, recent completion, and closure context before assuming the run is done.
+- **blocked** means the visible state is conflicted or otherwise needs intervention; this should read as an operator-visible problem state, not a harmless quiet gap.
+- **handoff-safe** means the surface can be safely treated as truly idle/settled for handoff purposes; absence of handoff-safe means a quiet surface may still be mid-closure or awaiting the next bounded follow-on.
+
+The point of these cues is to stop the common false read of "looks quiet, must be finished".
+A watch surface should help the operator distinguish quiet-but-waiting, genuinely blocked, and truly handoff-safe idle.
 
 ## Where the web UI sits in the operator stack
 

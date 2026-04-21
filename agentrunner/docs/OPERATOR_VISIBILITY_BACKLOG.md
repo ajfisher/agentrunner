@@ -37,6 +37,18 @@ Concrete regression case to keep proving:
 - operator/watcher surfaces must still report `closure-active` or otherwise clearly show `handoffSafe=false`
 - only once the initiative reaches terminal success and runtime is quiet should the surface reconcile to true clean idle
 
+### Watch-surface wording to keep consistent
+
+Across CLI watch, browser UI, and future local TUI copy, use the same plain-language scan model:
+- **now** = what is executing or currently reconciled as the top state
+- **next up** = what the queue says should happen next
+- **recent completion** = the most recent finished item, so a quiet screen still has immediate context
+- **waiting** = not executing right now, but not necessarily done
+- **blocked** = operator-visible intervention/problem state
+- **handoff-safe** = quiet enough and reconciled enough that a human can safely treat the initiative as settled
+
+This wording matters because the watch surface is deliberately a single grouped view, not a tab set or a pile of separate operator commands glued together.
+
 ## Desired principle
 
 Define **one canonical operator-facing status artifact** first, then let all surfaces consume that.
@@ -180,6 +192,11 @@ Potential layout:
 - queue view
 - recent tick stream
 - warnings / stale indicators
+
+Carry-forward notes for a later TUI slice (notes/backlog only, not this implementation slice):
+- keep the same single-page grouping as the browser watch surface: now / next up / recent completion / operator cues
+- preserve the same waiting / blocked / handoff-safe wording so operators do not have to relearn semantics between browser and terminal surfaces
+- if space gets tight, collapse secondary detail before splitting the watch surface across multiple panes with different meanings
 
 Recommendation: keep this out of the critical path until the status artifact contract exists.
 

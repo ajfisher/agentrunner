@@ -105,6 +105,12 @@ Useful routed variants:
 - initiative summary: `python3 -m agentrunner initiatives --project picv_spike`
 - watch mode: `python3 -m agentrunner watch --project picv_spike --interval 5`
 
+Intended watch workflow:
+- start with `status` when you want a single current snapshot
+- move to `watch` when you want the same operator truth re-rendered as one grouped watch surface instead of repeatedly re-running separate commands
+- treat the watch surface as a single-page summary of now / next up / recent completion / warnings, not as a control panel
+- when the surface looks quiet, check the waiting / blocked / handoff-safe cues before assuming the initiative is actually done
+
 Useful compatibility/debug variants:
 - direct script path: `python3 agentrunner/scripts/operator_cli.py queue --project picv_spike`
 - bounded manual rebuild when the artifact is missing: `python3 agentrunner/scripts/operator_cli.py status --project picv_spike --rebuild-missing --write-rebuild`
@@ -132,6 +138,7 @@ Rule of thumb:
 - reach for `python3 -m agentrunner status|queue|initiatives|watch --project <project>` first
 - use `python3 -m agentrunner api --host 127.0.0.1 --port 8765` when you want a tiny optional local read-only HTTP adapter over the canonical operator snapshot (JSON at `/v1/operator/snapshot?project=<project>`, HTML at `/operator?project=<project>`)
 - the browser page at `/operator?project=<project>` is intentionally a thin local read-only renderer that auto-refreshes by polling that same snapshot every 5 seconds; it is meant for colocated operator visibility, not as a second runtime or a write/control surface
+- the intended watch surface groups the same operator truths onto one page: current status now, next up queue context, recent completion, and operator cues for waiting / blocked / handoff-safe state
 - use `python3 -m agentrunner tui --project <project>` when you want a local terminal surface that keeps re-rendering the same canonical read model without adding any write/control affordances
 - for a browser-facing UI, attach to that existing local API entrypoint rather than inventing a second control/runtime surface; the bounded contract is documented in `agentrunner/docs/OPERATOR_WEB_UI.md`
 - keep the API on loopback unless you are intentionally placing another authenticated/local transport in front of it; the intended default is machine-facing localhost use, not a public/operator write surface
