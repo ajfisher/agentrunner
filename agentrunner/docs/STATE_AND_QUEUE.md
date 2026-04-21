@@ -114,10 +114,38 @@ Minimum contract fields:
 - `current` — active work summary or `null`
 - `queue` — queue summary including at least `depth` and `nextIds`
 - `initiative` — initiative id + current phase summary when known
+- `closure` — bounded closure/handoff projection derived from the initiative phase plus operator status; this is the source of truth for closure semantics
 - `lastCompleted` — most recent completed/blocked item summary when known
 - `warnings` — zero or more structured warning objects
 - `reconciliation` — explicit source/reason/preference breakdown for how the decision was derived; this is part of the required minimum contract, not an optional extension
 - `updatedAt` — ISO-8601 timestamp for when the summary was refreshed
+
+## Closure state taxonomy and handoff contract
+
+Source of truth:
+- `operator_status.json.closure` is the canonical operator-facing closure-semantics contract.
+- It is derivative/read-only, built from mechanics truth (`state.json`, `queue.json`, ticks/results) plus initiative-local phase state.
+- `status` remains the broad runtime reconciliation decision; `closure.state` is the bounded initiative/handoff projection.
+
+Bounded closure states:
+- `execution-active` — design/execution work is still in progress, or runtime work remains before closure is settled
+- `closure-active` — execution is done enough that the initiative is in a closure lane, but closure is still actively being resolved
+- `blocked` — operator-visible state is blocked/conflicted and the initiative is not safe to hand off
+- `idle-clean` — runtime is quiet and no non-terminal initiative closure work remains
+
+Phase → closure-state projection:
+- `review-manager` → `closure-active`
+- `replan-architect` → `closure-active`
+- `closure-merger` → `closure-active`
+- closure-follow-up execution work such as merger passback remediation / proof-hardening also projects to `closure-active` even though the initiative phase may temporarily be `execution`
+- terminal success (`completed` / `closed`) may project to `idle-clean` once runtime is also quiet and unblocked
+
+Handoff safety contract:
+- `closure.quiet=true` means there is no active run and no queued backlog right now
+- `closure.handoffSafe=true` is stricter: it requires `closure.state=idle-clean`, `closure.quiet=true`, and no non-terminal initiative phase still demanding closure work
+- therefore **“no active queue item” is not the same as “safe to hand off / enqueue the next initiative”**
+- example: a project may be quiet while the active initiative is still in `review-manager`; that is `closure-active`, not handoff-safe
+- the taxonomy stays hierarchical on purpose: detailed initiative phase remains under `initiative.phase`, while operator surfaces that only need the safe bounded vocabulary should read `closure.state`
 
 Proof-check bootstrap for reviewers in a clean checkout:
 - run `./scripts/bootstrap_pytest.sh`

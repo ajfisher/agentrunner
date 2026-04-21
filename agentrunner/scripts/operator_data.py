@@ -27,7 +27,7 @@ DEFAULT_PROJECTS_ROOT = Path.home() / ".agentrunner" / "projects"
 OPERATOR_STATUS_FILENAME = "operator_status.json"
 OPERATOR_SNAPSHOT_CONTRACT = {
     "name": "agentrunner.operator-status-snapshot",
-    "version": 1,
+    "version": 2,
     "filename": OPERATOR_STATUS_FILENAME,
     "pathPattern": "~/.agentrunner/projects/<project>/operator_status.json",
     "ownership": "derivative operator-facing snapshot",
@@ -557,6 +557,16 @@ def initiative_summary(state_dir: Path, state: dict[str, Any], *, warnings: list
         branch = loaded.get("branch") or branch
         base = loaded.get("base") or base
 
+    closure_remediation = None
+    if isinstance(loaded, dict):
+        remediation = loaded.get("remediation") if isinstance(loaded.get("remediation"), dict) else None
+        if remediation:
+            closure_remediation = {
+                "activeAttempt": remediation.get("activeAttempt"),
+                "lastAttempt": remediation.get("lastAttempt"),
+                "halted": remediation.get("halted") if isinstance(remediation.get("halted"), dict) else None,
+            }
+
     status_message = status_message_summary(loaded or seed) if isinstance(loaded or seed, dict) else None
     return {
         "initiativeId": initiative_id,
@@ -566,6 +576,7 @@ def initiative_summary(state_dir: Path, state: dict[str, Any], *, warnings: list
         "base": base,
         "statePath": state_path,
         "statusMessage": status_message,
+        "closureRemediation": closure_remediation,
     }
 
 
@@ -588,6 +599,58 @@ def derive_last_completed(state_dir: Path, state: dict[str, Any], ticks: list[di
         if hint and not summary.get("summary"):
             summary["summary"] = hint
     return summary
+
+
+def derive_closure_state(*, status: str | None, current: dict[str, Any] | None, queue: list[Any], initiative: dict[str, Any] | None) -> dict[str, Any]:
+    """Derive the bounded closure/handoff taxonomy exposed to operators.
+
+    This keeps closure semantics hierarchical rather than overloading the main
+    operator status enum with every initiative phase.
+    """
+    status_value = str(status or "").strip() or None
+    phase = str((initiative or {}).get("phase") or "").strip() or None
+    remediation = (initiative or {}).get("closureRemediation") if isinstance((initiative or {}).get("closureRemediation"), dict) else None
+    remediation_active = isinstance(remediation, dict) and (
+        remediation.get("activeAttempt") is not None or isinstance(remediation.get("halted"), dict)
+    )
+    quiet = current is None and len(queue) == 0
+    terminal_success = phase in {"completed", "closed"}
+    closure_phases = {"review-manager", "replan-architect", "closure-merger"}
+
+    if status_value in {"blocked", "conflicted"}:
+        closure_state = "blocked"
+        reason = "operator status is blocked/conflicted, so the initiative is not handoff-safe"
+    elif phase in closure_phases or remediation_active:
+        closure_state = "closure-active"
+        reason = "initiative is in a closure-phase or closure remediation/passback follow-up"
+    elif status_value == "idle-clean" and quiet and (initiative is None or terminal_success):
+        closure_state = "idle-clean"
+        reason = "runtime is quiet and no non-terminal initiative closure work remains"
+    else:
+        closure_state = "execution-active"
+        reason = "initiative is still in design/execution or runtime work remains before closure is settled"
+
+    handoff_safe = closure_state == "idle-clean"
+    return {
+        "state": closure_state,
+        "handoffSafe": handoff_safe,
+        "quiet": quiet,
+        "initiativePhase": phase,
+        "reason": reason,
+        "policy": {
+            "name": "agentrunner.closure-state-taxonomy",
+            "version": 1,
+            "sourceOfTruth": "operator_status.json.closure",
+            "states": ["execution-active", "closure-active", "blocked", "idle-clean"],
+            "closurePhases": ["review-manager", "replan-architect", "closure-merger"],
+            "closureExecutionFollowUps": ["closure remediation", "proof hardening", "passback follow-up"],
+            "handoffSafeRequires": [
+                "closure.state == idle-clean",
+                "closure.quiet == true",
+                "initiative.phase absent or terminal-success",
+            ],
+        },
+    }
 
 
 def build_status_artifact(state_dir: Path, *, queue_preview: int = 3, tick_count: int = 3, now: datetime | None = None) -> dict[str, Any]:
@@ -644,6 +707,13 @@ def build_status_artifact(state_dir: Path, *, queue_preview: int = 3, tick_count
         if isinstance(reason, dict) and str(reason.get("severity") or "").lower() in {"warning", "error"}
     ])
 
+    closure = derive_closure_state(
+        status=reconciliation.get("decision"),
+        current=current,
+        queue=queue,
+        initiative=initiative,
+    )
+
     artifact = {
         "contract": dict(OPERATOR_SNAPSHOT_CONTRACT),
         "project": state.get("project") or state_dir.name,
@@ -655,6 +725,7 @@ def build_status_artifact(state_dir: Path, *, queue_preview: int = 3, tick_count
             "preview": queue_preview_items,
         },
         "initiative": initiative,
+        "closure": closure,
         "lastCompleted": last_completed,
         "warnings": warnings,
         "reconciliation": reconciliation,

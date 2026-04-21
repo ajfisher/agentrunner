@@ -9,6 +9,7 @@
     "current",
     "queue",
     "initiative",
+    "closure",
     "lastCompleted",
     "warnings",
     "reconciliation",
@@ -20,7 +21,7 @@
       "required": ["name", "version", "filename", "pathPattern", "ownership"],
       "properties": {
         "name": {"type": "string", "const": "agentrunner.operator-status-snapshot"},
-        "version": {"type": "integer", "const": 1},
+        "version": {"type": "integer", "const": 2},
         "filename": {"type": "string", "const": "operator_status.json"},
         "pathPattern": {"type": "string", "minLength": 1},
         "ownership": {"type": "string", "minLength": 1}
@@ -60,6 +61,19 @@
         "phase": {"type": ["string", "null"]},
         "currentSubtaskId": {"type": ["string", "null"]}
       },
+      "additionalProperties": true
+    },
+    "closure": {
+      "type": ["object", "null"],
+      "properties": {
+        "state": {"type": "string", "enum": ["execution-active", "closure-active", "blocked", "idle-clean"]},
+        "handoffSafe": {"type": "boolean"},
+        "quiet": {"type": "boolean"},
+        "initiativePhase": {"type": ["string", "null"]},
+        "reason": {"type": ["string", "null"]},
+        "policy": {"type": ["object", "null"]}
+      },
+      "required": ["state", "handoffSafe", "quiet"],
       "additionalProperties": true
     },
     "lastCompleted": {

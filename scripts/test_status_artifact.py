@@ -152,7 +152,12 @@ def test_active_queue_and_initiative_summary(state_dir: Path) -> None:
         'branch': 'feature/agentrunner/operator-status-artifact',
         'base': 'master',
         'statePath': str(initiative_state),
+        'statusMessage': None,
+        'closureRemediation': None,
     }, artifact
+    assert artifact['closure']['state'] == 'execution-active', artifact
+    assert artifact['closure']['handoffSafe'] is False, artifact
+    assert artifact['closure']['quiet'] is False, artifact
     assert artifact['lastCompleted']['queueItemId'] == 'architect-plan', artifact
     assert artifact['lastCompleted']['summary'] == 'Architect plan locked.', artifact
     assert artifact['resultHint'] == 'Architect plan locked.', artifact
@@ -195,6 +200,39 @@ def test_missing_and_malformed_optional_files_warn_not_crash(state_dir: Path) ->
     assert 'malformed_result' in codes, artifact
     assert artifact['initiative']['initiativeId'] == 'missing-initiative-state', artifact
     assert artifact['initiative']['phase'] == 'implementation', artifact
+    assert artifact['closure']['state'] == 'execution-active', artifact
+    assert artifact['closure']['handoffSafe'] is False, artifact
+    assert artifact['closure']['quiet'] is True, artifact
+
+
+def test_closure_active_requires_more_than_merely_being_quiet(state_dir: Path) -> None:
+    initiative_state = state_dir / 'initiatives' / 'closure-semantics' / 'state.json'
+    write_json(initiative_state, {
+        'initiativeId': 'closure-semantics',
+        'phase': 'review-manager',
+        'branch': 'feature/agentrunner/closure-handoff-state-semantics',
+        'base': 'master',
+    })
+    write_json(state_dir / 'state.json', {
+        'project': 'agentrunner',
+        'running': False,
+        'updatedAt': (FIXED_NOW - timedelta(minutes=1)).isoformat(),
+        'current': None,
+        'initiative': {
+            'initiativeId': 'closure-semantics',
+            'phase': 'review-manager',
+            'statePath': str(initiative_state),
+        },
+    })
+    write_json(state_dir / 'queue.json', [])
+
+    artifact = build_status_artifact(state_dir, queue_preview=2, tick_count=3, now=FIXED_NOW)
+
+    assert artifact['status'] == 'idle-clean', artifact
+    assert artifact['closure']['state'] == 'closure-active', artifact
+    assert artifact['closure']['quiet'] is True, artifact
+    assert artifact['closure']['handoffSafe'] is False, artifact
+    assert artifact['closure']['initiativePhase'] == 'review-manager', artifact
 
 
 def test_stale_and_partial_runtime_cases(state_dir: Path) -> None:
@@ -271,6 +309,8 @@ def test_stale_and_partial_runtime_cases(state_dir: Path) -> None:
         'extraDevTurnsUsed': 1,
         'lastBranch': 'feature/agentrunner/operator-status-artifact',
     }, artifact
+    assert artifact['closure']['state'] == 'blocked', artifact
+    assert artifact['closure']['handoffSafe'] is False, artifact
 
 
 def test_live_repo_can_outrank_stale_blocked_result_when_runtime_is_otherwise_clean(state_dir: Path) -> None:
@@ -299,6 +339,8 @@ def test_live_repo_can_outrank_stale_blocked_result_when_runtime_is_otherwise_cl
     artifact = build_status_artifact(state_dir, queue_preview=2, tick_count=3, now=FIXED_NOW)
 
     assert artifact['status'] == 'idle-clean', artifact
+    assert artifact['closure']['state'] == 'idle-clean', artifact
+    assert artifact['closure']['handoffSafe'] is True, artifact
     live_repo = next((src for src in artifact['reconciliation']['sources'] if src.get('name') == 'live_repo'), None)
     assert live_repo is not None and live_repo['present'] is True, artifact
     assert live_repo['details']['cleanWorktree'] is True, artifact
@@ -335,6 +377,8 @@ def test_live_repo_on_base_can_outrank_stale_blocked_merger_tail_when_feature_is
     artifact = build_status_artifact(state_dir, queue_preview=2, tick_count=3, now=FIXED_NOW)
 
     assert artifact['status'] == 'idle-clean', artifact
+    assert artifact['closure']['state'] == 'idle-clean', artifact
+    assert artifact['closure']['handoffSafe'] is True, artifact
     live_repo = next((src for src in artifact['reconciliation']['sources'] if src.get('name') == 'live_repo'), None)
     assert live_repo is not None and live_repo['present'] is True, artifact
     assert live_repo['details']['branch'] == 'master', artifact
@@ -348,6 +392,7 @@ def main() -> int:
         root = Path(tmp)
         test_active_queue_and_initiative_summary(root / 'active')
         test_missing_and_malformed_optional_files_warn_not_crash(root / 'partial')
+        test_closure_active_requires_more_than_merely_being_quiet(root / 'closure-active')
         test_stale_and_partial_runtime_cases(root / 'stale')
         test_live_repo_can_outrank_stale_blocked_result_when_runtime_is_otherwise_clean(root / 'repo-clean')
         test_live_repo_on_base_can_outrank_stale_blocked_merger_tail_when_feature_is_already_merged(root / 'repo-on-base')

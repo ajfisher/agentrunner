@@ -20,6 +20,22 @@ Responsibilities:
 
 The agent must not be able to rewrite mechanics history.
 
+## Closure semantics contract
+
+The source of truth for operator-visible closure semantics is the derived `operator_status.json.closure` payload, not ad hoc guesses from queue emptiness alone.
+
+Design intent:
+- keep the main runtime `status` reconciliation broad (`active` / `blocked` / `idle-*` / `conflicted`)
+- project initiative-specific closure meaning into a **small bounded taxonomy**: `execution-active`, `closure-active`, `blocked`, `idle-clean`
+- preserve hierarchy: detailed initiative phase still lives in `initiative.phase`; closure state is a compact operator summary over that phase model
+- keep handoff safety explicit: `handoffSafe=true` means more than “nothing is running right this second”
+
+Current closure-active projection includes:
+- `review-manager`
+- `replan-architect`
+- `closure-merger`
+- closure follow-up execution loops such as proof-hardening or merger passback/remediation
+
 ## Current dispatch pattern
 
 - A small **invoker** runs on a fast cadence (e.g. every 2 minutes).
