@@ -228,12 +228,14 @@ def test_closure_active_requires_more_than_merely_being_quiet(state_dir: Path) -
 
     artifact = build_status_artifact(state_dir, queue_preview=2, tick_count=3, now=FIXED_NOW)
 
-    assert artifact['status'] == 'idle-clean', artifact
+    assert artifact['status'] == 'idle-pending', artifact
     assert artifact['closure']['state'] == 'closure-active', artifact
     assert artifact['closure']['quiet'] is True, artifact
     assert artifact['closure']['handoffSafe'] is False, artifact
     assert artifact['closure']['initiativePhase'] == 'review-manager', artifact
     assert artifact['closure']['reason'] == 'initiative is in a closure-phase or closure remediation/passback follow-up', artifact
+    assert artifact['reconciliation']['decision'] == 'idle-pending', artifact
+    assert artifact['reconciliation']['reasons'][0]['code'] == 'closure_follow_up_pending', artifact
 
 
 def test_closure_active_reason_covers_quiet_manager_to_architect_replan_handoff(state_dir: Path) -> None:
@@ -259,12 +261,14 @@ def test_closure_active_reason_covers_quiet_manager_to_architect_replan_handoff(
 
     artifact = build_status_artifact(state_dir, queue_preview=2, tick_count=3, now=FIXED_NOW)
 
-    assert artifact['status'] == 'idle-clean', artifact
+    assert artifact['status'] == 'idle-pending', artifact
     assert artifact['closure']['state'] == 'closure-active', artifact
     assert artifact['closure']['quiet'] is True, artifact
     assert artifact['closure']['handoffSafe'] is False, artifact
     assert artifact['closure']['initiativePhase'] == 'replan-architect', artifact
     assert artifact['closure']['reason'] == 'initiative is in a closure-phase or closure remediation/passback follow-up', artifact
+    assert artifact['reconciliation']['decision'] == 'idle-pending', artifact
+    assert artifact['reconciliation']['reasons'][0]['code'] == 'closure_follow_up_pending', artifact
 
 
 
@@ -297,12 +301,14 @@ def test_closure_active_reason_covers_proof_hardening_even_when_runtime_is_idle_
 
     artifact = build_status_artifact(state_dir, queue_preview=2, tick_count=3, now=FIXED_NOW)
 
-    assert artifact['status'] == 'idle-clean', artifact
+    assert artifact['status'] == 'idle-pending', artifact
     assert artifact['closure']['state'] == 'closure-active', artifact
     assert artifact['closure']['quiet'] is True, artifact
     assert artifact['closure']['handoffSafe'] is False, artifact
     assert artifact['closure']['initiativePhase'] == 'implementation', artifact
     assert artifact['closure']['reason'] == 'initiative is in a closure-phase or closure remediation/passback follow-up', artifact
+    assert artifact['reconciliation']['decision'] == 'idle-pending', artifact
+    assert artifact['reconciliation']['reasons'][0]['code'] == 'closure_follow_up_pending', artifact
 
 
 def test_stale_and_partial_runtime_cases(state_dir: Path) -> None:

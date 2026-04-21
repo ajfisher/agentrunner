@@ -191,8 +191,8 @@ Status semantics:
 - `conflicted` — higher-precedence truth sources disagree or mechanics state is internally inconsistent (for example `running=true` without `current`, or the active item also appears in the queued backlog)
 - `blocked` — the latest operator-visible state indicates a blocking condition (for example the current run is stale or the latest completed item ended blocked)
 - `active` — runtime lock + active run details agree on a fresh in-flight item
-- `idle-pending` — nothing is actively running, but queued work remains
-- `idle-clean` — nothing is actively running and there is no queued work or blocking context visible
+- `idle-pending` — nothing is actively running, but queued work remains **or** quiet/non-terminal closure follow-up still makes handoff unsafe
+- `idle-clean` — nothing is actively running and there is no queued work, closure follow-up, or blocking context visible
 
 `reconciliation` is the explicit policy payload behind `status`. It enumerates the candidate truth sources, their precedence/freshness metadata, and the ordered machine-readable reasons for the final decision.
 
@@ -203,7 +203,8 @@ Current precedence order:
 4. last completed blocked result
 5. fresh active-runtime claim
 6. queued backlog without active work
-7. idle-clean fallback
+7. quiet closure follow-up without a live queued item yet
+8. idle-clean fallback
 
 Operator-facing formatting contract:
 - `reconciliation:` should show the final decision plus the winning source/rule/precedence (`winner=source=..., rule=..., p...`)

@@ -267,7 +267,7 @@ def test_watch_surface_keeps_quiet_replan_handoff_visible_as_not_handoff_safe(tm
         state_dir / "operator_status.json",
         {
             "project": "agentrunner",
-            "status": "idle-clean",
+            "status": "idle-pending",
             "updatedAt": "2026-04-21T02:10:00Z",
             "current": None,
             "queue": {"depth": 0, "nextIds": [], "preview": []},
@@ -293,9 +293,17 @@ def test_watch_surface_keeps_quiet_replan_handoff_visible_as_not_handoff_safe(tm
             "resultHint": "Quiet queue does not mean the initiative is handoff-safe while replan-architect remains active.",
             "warnings": [],
             "reconciliation": {
-                "decision": "idle-clean",
-                "summary": "runtime is quiet, but closure follow-up remains",
-                "reasons": [],
+                "decision": "idle-pending",
+                "summary": "runtime is quiet, but non-terminal closure follow-up still remains before handoff is clean",
+                "reasons": [
+                    {
+                        "code": "closure_follow_up_pending",
+                        "source": "initiative",
+                        "severity": "info",
+                        "summary": "runtime is quiet, but non-terminal closure follow-up still remains before handoff is clean",
+                        "precedence": 6,
+                    }
+                ],
                 "policy": {
                     "name": "canonical_runtime_reconciliation",
                     "version": 2,
@@ -306,6 +314,7 @@ def test_watch_surface_keeps_quiet_replan_handoff_visible_as_not_handoff_safe(tm
                         "last_completed_blocked",
                         "active_runtime_lock",
                         "queued_backlog_without_active_run",
+                        "closure_follow_up_without_live_queue",
                         "idle_clean"
                     ],
                 },
@@ -316,8 +325,9 @@ def test_watch_surface_keeps_quiet_replan_handoff_visible_as_not_handoff_safe(tm
     result = run_module("watch", "--state-dir", str(state_dir), "--count", "1", "--interval", "0")
 
     assert result.returncode == 0, result.stderr
-    assert "status: IDLE-CLEAN" in result.stdout
+    assert "status: IDLE-PENDING" in result.stdout
     assert "closure: closure-active | handoff-safe=false | quiet=true | phase=replan-architect | initiative is in a closure-phase or closure remediation/passback follow-up" in result.stdout
+    assert "reconciliation: idle-pending | winner=source=initiative, rule=closure_follow_up_pending, p6 | runtime is quiet, but non-terminal closure follow-up still remains before handoff is clean | reasons=1" in result.stdout
     assert "last completed: manager-closure-review | manager | ok | Feature work is complete, but pytest-doc proof hardening must be replanned through Architect." in result.stdout
 
 

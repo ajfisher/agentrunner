@@ -62,8 +62,8 @@ def reconcile_runtime_state(
     - conflicted: sources disagree or mechanics state is internally inconsistent
     - blocked: runtime is blocked/stale or last completed item ended blocked
     - active: mechanics says a run is active and the claim is fresh/consistent
-    - idle-pending: nothing active, but queued work still exists
-    - idle-clean: nothing active and no queued work remains
+    - idle-pending: nothing active, but queued work or non-terminal closure follow-up still exists
+    - idle-clean: nothing active and no queued work or closure follow-up remains
     """
     running_flag = bool(state.get("running"))
     queue_depth = len(queue)
@@ -86,6 +86,12 @@ def reconcile_runtime_state(
     )
     queued_ids = {str(item.get("id")) for item in queue if isinstance(item, dict) and item.get("id")}
     recent_tick_qid = ticks[-1].get("queueItemId") if ticks and isinstance(ticks[-1], dict) else None
+    initiative_phase = str((initiative or {}).get("phase") or "").strip() or None
+    closure_remediation = (initiative or {}).get("closureRemediation") if isinstance((initiative or {}).get("closureRemediation"), dict) else None
+    closure_remediation_active = isinstance(closure_remediation, dict) and (
+        closure_remediation.get("activeAttempt") is not None or isinstance(closure_remediation.get("halted"), dict)
+    )
+    closure_follow_up_pending = initiative_phase in {"review-manager", "replan-architect", "closure-merger"} or closure_remediation_active
 
     current_freshness = "missing"
     if current_started is not None:
@@ -285,6 +291,20 @@ def reconcile_runtime_state(
                 precedence=6,
             ))
         decision = "idle-pending"
+    elif closure_follow_up_pending:
+        reasons.append(_reason(
+            code="closure_follow_up_pending",
+            source="initiative",
+            severity="info",
+            summary="runtime is quiet, but non-terminal closure follow-up still remains before handoff is clean",
+            details={
+                "initiativeId": (initiative or {}).get("initiativeId"),
+                "phase": initiative_phase,
+                "closureRemediationActive": closure_remediation_active,
+            },
+            precedence=6,
+        ))
+        decision = "idle-pending"
     else:
         reasons.append(_reason(
             code="idle_clean",
@@ -321,6 +341,7 @@ def reconcile_runtime_state(
                 "last_completed_blocked",
                 "active_runtime_lock",
                 "queued_backlog_without_active_run",
+                "closure_follow_up_without_live_queue",
                 "idle_clean",
             ],
         },
