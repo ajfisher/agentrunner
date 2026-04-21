@@ -88,11 +88,22 @@ def test_page_model_is_derived_from_canonical_snapshot_contract() -> None:
         '1 warning',
     ]
     assert payload['chips'][0]['tone'] == 'good'
-    titles = [section['title'] for section in payload['sections']]
-    assert titles == ['current', 'queue', 'initiative', 'closure', 'last completed', 'warnings', 'reconciliation']
-    queue_lines = next(section['lines'] for section in payload['sections'] if section['title'] == 'queue')
+    watch_titles = [group['title'] for group in payload['watchGroups']]
+    assert watch_titles == [
+        'What is happening now?',
+        'What is next?',
+        'What just finished?',
+        'What needs attention?',
+    ]
+    assert payload['watchGroups'][0]['summary'] == 'Developer is working on developer-1.'
+    assert payload['watchGroups'][1]['summary'] == 'Next up: reviewer-1.'
+    assert payload['watchGroups'][2]['summary'] == 'Most recently finished: architect-1 (ok).'
+    assert payload['watchGroups'][3]['summary'] == '1 warning need attention.'
+    queue_lines = payload['watchGroups'][1]['lines']
     assert '2 items are waiting in the queue.' in queue_lines
     assert 'Coming up next: reviewer-1, manager-1' in queue_lines
+    titles = [section['title'] for section in payload['sections']]
+    assert titles == ['initiative context', 'closure details', 'warning details', 'reconciliation details']
 
 
 def test_renderer_requires_the_canonical_snapshot_fields() -> None:
@@ -112,6 +123,9 @@ def test_rendered_html_mentions_the_api_contract_not_a_second_runtime() -> None:
     assert 'AgentRunner operator · demo' in html
     assert '/v1/operator/snapshot' in html
     assert 'Active — developer is working on developer-1 with 2 more queued.' in html
+    assert 'What is happening now?' in html
+    assert 'What is next?' in html
+    assert 'Most recently finished: architect-1 (ok).' in html
     assert 'overall active' in html
     assert 'running · queue depth 2' in html
     assert 'read-only browser renderer' in html
@@ -138,6 +152,8 @@ def test_unavailable_renderer_uses_degraded_status_chips() -> None:
     )
     assert 'Snapshot unavailable — the browser surface cannot confidently describe current mechanics state yet.' in html
     assert 'overall snapshot unavailable' in html
+    assert 'What needs attention?' in html
+    assert 'Canonical snapshot missing.' in html
     assert 'Canonical operator snapshot is missing or malformed' in html
 
 

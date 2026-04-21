@@ -46,6 +46,15 @@ class WebSection:
 
 
 @dataclass(frozen=True)
+class WebQuestionGroup:
+    key: str
+    title: str
+    summary: str
+    tone: str = "neutral"
+    lines: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class OperatorPageModel:
     project: str
     artifact_path: str
@@ -56,6 +65,7 @@ class OperatorPageModel:
     updated_summary: str
     chips: tuple[WebChip, ...]
     notes: tuple[str, ...]
+    watch_groups: tuple[WebQuestionGroup, ...]
     sections: tuple[WebSection, ...]
     banner_lines: tuple[str, ...] = ()
 
@@ -365,6 +375,103 @@ def _line_reconciliation(snapshot: dict[str, Any]) -> tuple[str, ...]:
     return tuple(lines)
 
 
+def _watch_group_now(snapshot: dict[str, Any]) -> WebQuestionGroup:
+    current = snapshot.get("current")
+    initiative = snapshot.get("initiative") if isinstance(snapshot.get("initiative"), dict) else {}
+    if isinstance(current, dict) and current:
+        queue_item = current.get("queueItemId") or "current work"
+        role = str(current.get("role") or "worker")
+        lines = [_line_current(snapshot)]
+        if initiative.get("initiativeId"):
+            lines.append(f"Initiative: {initiative.get('initiativeId')}")
+        if initiative.get("currentSubtaskId"):
+            lines.append(f"Subtask: {initiative.get('currentSubtaskId')}")
+        return WebQuestionGroup(
+            key="now",
+            title="What is happening now?",
+            summary=f"{role.capitalize()} is working on {queue_item}.",
+            tone=_status_tone(snapshot.get("status")),
+            lines=tuple(lines),
+        )
+    return WebQuestionGroup(
+        key="now",
+        title="What is happening now?",
+        summary="Nothing is currently running.",
+        tone="neutral",
+        lines=(_line_current(snapshot),),
+    )
+
+
+def _watch_group_next(snapshot: dict[str, Any]) -> WebQuestionGroup:
+    queue = snapshot.get("queue") if isinstance(snapshot.get("queue"), dict) else {}
+    depth = int(queue.get("depth", 0) or 0)
+    next_ids = _as_list(queue.get("nextIds"), label="snapshot.queue.nextIds") if queue else []
+    preview = _as_list(queue.get("preview"), label="snapshot.queue.preview") if queue else []
+    if depth <= 0:
+        summary = "No queued follow-up is waiting right now."
+        tone = "good"
+    elif next_ids:
+        summary = f"Next up: {next_ids[0]}."
+        tone = "warn"
+    elif preview and isinstance(preview[0], dict) and preview[0].get("queueItemId"):
+        summary = f"Next up: {preview[0].get('queueItemId')}."
+        tone = "warn"
+    else:
+        summary = f"{depth} queued item{'s' if depth != 1 else ''} waiting."
+        tone = "warn"
+    return WebQuestionGroup(
+        key="next",
+        title="What is next?",
+        summary=summary,
+        tone=tone,
+        lines=_line_queue(snapshot),
+    )
+
+
+def _watch_group_recent(snapshot: dict[str, Any]) -> WebQuestionGroup:
+    last = snapshot.get("lastCompleted") if isinstance(snapshot.get("lastCompleted"), dict) else {}
+    if last:
+        queue_item = last.get("queueItemId") or "recent work"
+        status = str(last.get("status") or "unknown")
+        tone = "good" if status.lower() in {"ok", "done", "complete", "completed"} else "info"
+        summary = f"Most recently finished: {queue_item} ({status})."
+    else:
+        tone = "neutral"
+        summary = "No recent completion has been reported yet."
+    return WebQuestionGroup(
+        key="recent",
+        title="What just finished?",
+        summary=summary,
+        tone=tone,
+        lines=_line_last_completed(snapshot),
+    )
+
+
+def _watch_group_state(snapshot: dict[str, Any]) -> WebQuestionGroup:
+    closure = snapshot.get("closure") if isinstance(snapshot.get("closure"), dict) else {}
+    warnings = _as_list(snapshot.get("warnings"), label="snapshot.warnings")
+    status = str(snapshot.get("status") or "unknown")
+    if warnings:
+        summary = f"{len(warnings)} warning{'s' if len(warnings) != 1 else ''} need attention."
+        tone = _warnings_chip(snapshot).tone
+    elif status == "blocked":
+        summary = "Work is blocked and needs intervention."
+        tone = "danger"
+    elif closure.get("handoffSafe") is False:
+        summary = "Queue is quiet, but handoff is not safe yet."
+        tone = "warn"
+    else:
+        summary = "State and risk signals are quiet."
+        tone = "good"
+    return WebQuestionGroup(
+        key="state",
+        title="What needs attention?",
+        summary=summary,
+        tone=tone,
+        lines=_line_closure(snapshot) + _line_warnings(snapshot) + _line_reconciliation(snapshot),
+    )
+
+
 def build_page_model_from_snapshot_envelope(envelope: dict[str, Any]) -> OperatorPageModel:
     payload = _as_mapping(envelope, label="envelope")
     snapshot = _as_mapping(payload.get("snapshot"), label="snapshot")
@@ -387,14 +494,17 @@ def build_page_model_from_snapshot_envelope(envelope: dict[str, Any]) -> Operato
     if snapshot.get("status") in {"missing", "snapshot-unavailable", "unknown"}:
         banner_lines.append("Snapshot is not currently giving a confident operator answer.")
 
+    watch_groups = (
+        _watch_group_now(snapshot),
+        _watch_group_next(snapshot),
+        _watch_group_recent(snapshot),
+        _watch_group_state(snapshot),
+    )
     sections = (
-        WebSection(title="current", lines=(_line_current(snapshot),)),
-        WebSection(title="queue", lines=_line_queue(snapshot)),
-        WebSection(title="initiative", lines=_line_initiative(snapshot)),
-        WebSection(title="closure", lines=_line_closure(snapshot)),
-        WebSection(title="last completed", lines=_line_last_completed(snapshot)),
-        WebSection(title="warnings", lines=_line_warnings(snapshot)),
-        WebSection(title="reconciliation", lines=_line_reconciliation(snapshot)),
+        WebSection(title="initiative context", lines=_line_initiative(snapshot)),
+        WebSection(title="closure details", lines=_line_closure(snapshot)),
+        WebSection(title="warning details", lines=_line_warnings(snapshot)),
+        WebSection(title="reconciliation details", lines=_line_reconciliation(snapshot)),
     )
     chips = (
         _status_chip(snapshot),
@@ -412,6 +522,7 @@ def build_page_model_from_snapshot_envelope(envelope: dict[str, Any]) -> Operato
         updated_summary=_updated_summary(snapshot),
         chips=chips,
         notes=notes,
+        watch_groups=watch_groups,
         sections=sections,
         banner_lines=tuple(banner_lines),
     )
@@ -428,6 +539,7 @@ def page_model_payload(model: OperatorPageModel) -> dict[str, Any]:
         "updatedSummary": model.updated_summary,
         "chips": [asdict(chip) for chip in model.chips],
         "notes": list(model.notes),
+        "watchGroups": [asdict(group) for group in model.watch_groups],
         "sections": [asdict(section) for section in model.sections],
         "bannerLines": list(model.banner_lines),
     }
@@ -497,7 +609,14 @@ def render_html(model: OperatorPageModel) -> str:
     .chip-warn {{ background: var(--chip-warn-bg); color: var(--chip-warn-text); border-color: rgba(245, 158, 11, .30); }}
     .chip-danger {{ background: var(--chip-danger-bg); color: var(--chip-danger-text); border-color: rgba(248, 113, 113, .30); }}
     .card-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }}
+    .question-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; }}
     .card {{ background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 1rem; }}
+    .watch-card {{ display: grid; gap: .75rem; }}
+    .watch-summary {{ font-size: 1rem; font-weight: 650; line-height: 1.45; }}
+    .watch-card-good {{ border-color: rgba(34, 197, 94, .35); }}
+    .watch-card-info {{ border-color: rgba(56, 189, 248, .35); }}
+    .watch-card-warn {{ border-color: rgba(245, 158, 11, .35); }}
+    .watch-card-danger {{ border-color: rgba(248, 113, 113, .40); }}
     .banner-stack {{ display: grid; gap: .75rem; }}
     .banner {{ background: var(--banner); border: 1px solid var(--banner-border); border-radius: 12px; padding: .85rem 1rem; font-weight: 600; }}
     h1, h2 {{ margin: 0 0 .75rem 0; }}
@@ -523,6 +642,7 @@ def render_html(model: OperatorPageModel) -> str:
       <div class=\"chip-row\" id=\"page-chips\"></div>
     </section>
     <div class=\"banner-stack\" id=\"page-banners\"></div>
+    <div class=\"question-grid\" id=\"page-watch-groups\"></div>
     <section class=\"card\">
       <h2>snapshot notes</h2>
       <ul id=\"page-notes\"></ul>
@@ -545,6 +665,11 @@ def render_html(model: OperatorPageModel) -> str:
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#39;');
+    }}
+
+    function roleLabel(value) {{
+      const text = String(value || 'worker');
+      return text.charAt(0).toUpperCase() + text.slice(1);
     }}
 
     function renderPage(model, refreshLabel) {{
@@ -573,6 +698,14 @@ def render_html(model: OperatorPageModel) -> str:
         ? model.notes.map((line) => `<li>${{escapeHtml(line)}}</li>`).join('')
         : '<li>No snapshot notes.</li>';
       document.getElementById('page-notes').innerHTML = notes;
+
+      const watchGroups = (model.watchGroups || []).map((group) => {{
+        const lines = group.lines && group.lines.length
+          ? group.lines.map((line) => `<li>${{escapeHtml(line)}}</li>`).join('')
+          : '<li>none</li>';
+        return `<section class=\"card watch-card watch-card-${{escapeHtml(group.tone || 'neutral')}}\"><h2>${{escapeHtml(group.title)}}</h2><div class=\"watch-summary\">${{escapeHtml(group.summary || '')}}</div><ul>${{lines}}</ul></section>`;
+      }}).join('');
+      document.getElementById('page-watch-groups').innerHTML = watchGroups;
 
       const sections = (model.sections || []).map((section) => {{
         const lines = section.lines && section.lines.length
@@ -752,14 +885,59 @@ def render_html(model: OperatorPageModel) -> str:
         updatedSummary: `Snapshot recency: ${{recency.label}}.`,
         chips,
         notes: Array.isArray(envelope.notes) ? envelope.notes.map(String) : [],
+        watchGroups: [
+          {{
+            key: 'now',
+            title: 'What is happening now?',
+            summary: current && Object.keys(current).length ? `${{roleLabel(current.role)}} is working on ${{current.queueItemId || 'current work'}}.` : 'Nothing is currently running.',
+            tone: current && Object.keys(current).length ? statusTone : 'neutral',
+            lines: [
+              currentLine,
+              ...(initiative && initiative.initiativeId ? [`Initiative: ${{initiative.initiativeId}}`] : []),
+              ...(initiative && initiative.currentSubtaskId ? [`Subtask: ${{initiative.currentSubtaskId}}`] : []),
+            ],
+          }},
+          {{
+            key: 'next',
+            title: 'What is next?',
+            summary: queueDepth <= 0
+              ? 'No queued follow-up is waiting right now.'
+              : `Next up: ${{nextIds[0] || ((preview[0] && preview[0].queueItemId) || `${{queueDepth}} queued item${{queueDepth === 1 ? '' : 's'}}`)}}.`,
+            tone: queueDepth <= 0 ? 'good' : 'warn',
+            lines: queueLines,
+          }},
+          {{
+            key: 'recent',
+            title: 'What just finished?',
+            summary: lastCompleted && Object.keys(lastCompleted).length
+              ? `Most recently finished: ${{lastCompleted.queueItemId || 'recent work'}} (${{lastCompleted.status || 'unknown'}}).`
+              : 'No recent completion has been reported yet.',
+            tone: lastCompleted && Object.keys(lastCompleted).length
+              ? (['ok', 'done', 'complete', 'completed'].includes(String(lastCompleted.status || '').toLowerCase()) ? 'good' : 'info')
+              : 'neutral',
+            lines: lastCompletedLines,
+          }},
+          {{
+            key: 'state',
+            title: 'What needs attention?',
+            summary: warnings.length
+              ? `${{warnings.length}} warning${{warnings.length === 1 ? '' : 's'}} need attention.`
+              : (status === 'blocked'
+                ? 'Work is blocked and needs intervention.'
+                : (closure && closure.handoffSafe === false ? 'Queue is quiet, but handoff is not safe yet.' : 'State and risk signals are quiet.')),
+            tone: warnings.length
+              ? (warnings.some((item) => item && typeof item === 'object' && ['error', 'critical'].includes(String(item.severity || '').toLowerCase()))
+                ? 'danger'
+                : (warnings.some((item) => item && typeof item === 'object' && ['warn', 'warning'].includes(String(item.severity || '').toLowerCase())) ? 'warn' : 'info'))
+              : (status === 'blocked' ? 'danger' : ((closure && closure.handoffSafe === false) ? 'warn' : 'good')),
+            lines: [...closureLines, ...warningLines, ...reconciliationLines],
+          }},
+        ],
         sections: [
-          {{title: 'current', lines: [currentLine]}},
-          {{title: 'queue', lines: queueLines}},
-          {{title: 'initiative', lines: initiativeLines}},
-          {{title: 'closure', lines: closureLines}},
-          {{title: 'last completed', lines: lastCompletedLines}},
-          {{title: 'warnings', lines: warningLines}},
-          {{title: 'reconciliation', lines: reconciliationLines}},
+          {{title: 'initiative context', lines: initiativeLines}},
+          {{title: 'closure details', lines: closureLines}},
+          {{title: 'warning details', lines: warningLines}},
+          {{title: 'reconciliation details', lines: reconciliationLines}},
         ],
         bannerLines,
       }};
@@ -811,13 +989,17 @@ def render_unavailable_html(*, project: str, artifact_path: str, notes: tuple[st
             WebChip(label="recency unknown", tone="neutral"),
         ),
         notes=notes or ("No canonical snapshot is available yet.",),
+        watch_groups=(
+            WebQuestionGroup(key="now", title="What is happening now?", summary="Current work is unavailable.", tone="danger", lines=("Current work is unavailable.",)),
+            WebQuestionGroup(key="next", title="What is next?", summary="Queue state is unavailable.", tone="warn", lines=("Queue state is unavailable.",)),
+            WebQuestionGroup(key="recent", title="What just finished?", summary="Recent completion data is unavailable.", tone="neutral", lines=("Recent completion data is unavailable.",)),
+            WebQuestionGroup(key="state", title="What needs attention?", summary="Canonical snapshot missing.", tone="danger", lines=("warning: canonical snapshot missing", "Reconciliation details are unavailable.")),
+        ),
         sections=(
-            WebSection(title="current", lines=("Current work is unavailable.",)),
-            WebSection(title="queue", lines=("Queue state is unavailable.",)),
-            WebSection(title="initiative", lines=("Initiative context is unavailable.",)),
-            WebSection(title="last completed", lines=("Recent completion data is unavailable.",)),
-            WebSection(title="warnings", lines=("warning: canonical snapshot missing",)),
-            WebSection(title="reconciliation", lines=("Reconciliation details are unavailable.",)),
+            WebSection(title="initiative context", lines=("Initiative context is unavailable.",)),
+            WebSection(title="closure details", lines=("Closure details are unavailable.",)),
+            WebSection(title="warning details", lines=("warning: canonical snapshot missing",)),
+            WebSection(title="reconciliation details", lines=("Reconciliation details are unavailable.",)),
         ),
         banner_lines=("Canonical operator snapshot is missing or malformed; this page is showing a degraded read-only state.",),
     )
