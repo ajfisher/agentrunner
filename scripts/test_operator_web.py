@@ -73,6 +73,85 @@ def sample_envelope() -> dict:
     }
 
 
+def envelope_for_state(name: str) -> dict:
+    envelope = sample_envelope()
+    snapshot = envelope['snapshot']
+
+    if name == 'active-with-backlog':
+        return envelope
+
+    if name == 'idle-closure-unsafe':
+        snapshot['status'] = 'idle-pending'
+        snapshot['current'] = {}
+        snapshot['queue'] = {'depth': 0, 'nextIds': [], 'preview': []}
+        snapshot['closure'] = {
+            'state': 'closure-active',
+            'handoffSafe': False,
+            'quiet': True,
+            'initiativePhase': 'replan-architect',
+            'reason': 'closure review and proof hardening still remain before handoff is safe',
+        }
+        snapshot['warnings'] = []
+        snapshot['reconciliation'] = {
+            'decision': 'idle-pending',
+            'summary': 'runtime is quiet, but non-terminal closure follow-up still remains before handoff is clean',
+            'reasons': [],
+        }
+        return envelope
+
+    if name == 'blocked':
+        snapshot['status'] = 'blocked'
+        snapshot['current'] = {}
+        snapshot['queue'] = {'depth': 0, 'nextIds': [], 'preview': []}
+        snapshot['closure'] = {
+            'state': 'blocked',
+            'handoffSafe': False,
+            'quiet': True,
+            'initiativePhase': 'closure-merger',
+            'reason': 'merge is blocked and requires intervention before closure can continue',
+        }
+        snapshot['warnings'] = []
+        snapshot['reconciliation'] = {
+            'decision': 'blocked',
+            'summary': 'most recent completed item ended blocked',
+            'reasons': [],
+        }
+        snapshot['lastCompleted'] = {
+            'queueItemId': 'merger-1',
+            'role': 'merger',
+            'status': 'blocked',
+            'summary': 'ff-only merge is no longer possible without remediation.',
+        }
+        return envelope
+
+    if name == 'recent-completion-emphasis':
+        snapshot['status'] = 'idle-clean'
+        snapshot['current'] = {}
+        snapshot['queue'] = {'depth': 0, 'nextIds': [], 'preview': []}
+        snapshot['closure'] = {
+            'state': 'idle-clean',
+            'handoffSafe': True,
+            'quiet': True,
+            'initiativePhase': 'completed',
+            'reason': 'runtime is quiet and the initiative is safe to hand off',
+        }
+        snapshot['warnings'] = []
+        snapshot['reconciliation'] = {
+            'decision': 'idle-clean',
+            'summary': 'runtime is quiet, queue is empty, and closure is complete',
+            'reasons': [],
+        }
+        snapshot['lastCompleted'] = {
+            'queueItemId': 'reviewer-2',
+            'role': 'reviewer',
+            'status': 'ok',
+            'summary': 'Approved the watch surface proof bundle.',
+        }
+        return envelope
+
+    raise ValueError(f'unknown state fixture: {name}')
+
+
 def test_page_model_is_derived_from_canonical_snapshot_contract() -> None:
     model = operator_web.build_page_model_from_snapshot_envelope(sample_envelope())
     payload = operator_web.page_model_payload(model)
@@ -104,6 +183,59 @@ def test_page_model_is_derived_from_canonical_snapshot_contract() -> None:
     assert 'Coming up next: reviewer-1, manager-1' in queue_lines
     titles = [section['title'] for section in payload['sections']]
     assert titles == ['initiative context', 'closure details', 'warning details', 'reconciliation details']
+
+
+def test_active_with_backlog_fixture_proves_running_and_queued_watch_groups() -> None:
+    model = operator_web.build_page_model_from_snapshot_envelope(envelope_for_state('active-with-backlog'))
+    payload = operator_web.page_model_payload(model)
+
+    assert payload['statusSummary'] == 'Active — developer is working on developer-1 with 2 more queued.'
+    assert payload['chips'][1] == {'label': 'running · queue depth 2', 'tone': 'info'}
+    assert payload['watchGroups'][0]['summary'] == 'Developer is working on developer-1.'
+    assert payload['watchGroups'][1]['summary'] == 'Next up: reviewer-1.'
+    assert '2 items are waiting in the queue.' in payload['watchGroups'][1]['lines']
+    assert 'Coming up next: reviewer-1, manager-1' in payload['watchGroups'][1]['lines']
+
+
+def test_idle_queue_but_closure_unsafe_fixture_keeps_handoff_risk_visible() -> None:
+    model = operator_web.build_page_model_from_snapshot_envelope(envelope_for_state('idle-closure-unsafe'))
+    payload = operator_web.page_model_payload(model)
+
+    assert payload['statusSummary'] == 'Idle pending — runtime is quiet, but closure follow-up still makes handoff unsafe. closure review and proof hardening still remain before handoff is safe'
+    assert payload['chips'][1] == {'label': 'queue clear · closure follow-up remains', 'tone': 'warn'}
+    assert payload['chips'][2] == {'label': 'handoff not safe', 'tone': 'warn'}
+    assert payload['watchGroups'][0]['summary'] == 'Nothing is currently running.'
+    assert payload['watchGroups'][1]['summary'] == 'No queued follow-up is waiting right now.'
+    assert payload['watchGroups'][3]['summary'] == 'Queue is quiet, but handoff is not safe yet.'
+    assert 'Closure state: closure-active' in payload['watchGroups'][3]['lines']
+    assert 'Handoff safe: False' in payload['watchGroups'][3]['lines']
+
+
+def test_blocked_fixture_proves_attention_state_over_quiet_queue() -> None:
+    model = operator_web.build_page_model_from_snapshot_envelope(envelope_for_state('blocked'))
+    payload = operator_web.page_model_payload(model)
+
+    assert payload['statusSummary'] == 'Blocked — queue depth is zero, but the initiative is still not handoff-safe. merge is blocked and requires intervention before closure can continue'
+    assert payload['chips'][0] == {'label': 'overall blocked', 'tone': 'danger'}
+    assert payload['chips'][2] == {'label': 'handoff not safe', 'tone': 'warn'}
+    assert payload['watchGroups'][2]['summary'] == 'Most recently finished: merger-1 (blocked).'
+    assert payload['watchGroups'][2]['tone'] == 'info'
+    assert payload['watchGroups'][3]['summary'] == 'Work is blocked and needs intervention.'
+    assert 'Most recent completion: merger-1 | merger | blocked | ff-only merge is no longer possible without remediation.' in payload['watchGroups'][2]['lines']
+
+
+def test_recent_completion_fixture_keeps_recent_success_visible_after_runtime_goes_quiet() -> None:
+    model = operator_web.build_page_model_from_snapshot_envelope(envelope_for_state('recent-completion-emphasis'))
+    payload = operator_web.page_model_payload(model)
+
+    assert payload['statusSummary'] == 'Idle clean — nothing is running and the queue is clear.'
+    assert payload['chips'][0] == {'label': 'overall idle clean', 'tone': 'neutral'}
+    assert payload['chips'][1] == {'label': 'idle · queue clear', 'tone': 'neutral'}
+    assert payload['chips'][2] == {'label': 'warnings none', 'tone': 'good'}
+    assert payload['watchGroups'][2]['summary'] == 'Most recently finished: reviewer-2 (ok).'
+    assert payload['watchGroups'][2]['tone'] == 'good'
+    assert 'Most recent completion: reviewer-2 | reviewer | ok | Approved the watch surface proof bundle.' in payload['watchGroups'][2]['lines']
+    assert payload['watchGroups'][3]['summary'] == 'State and risk signals are quiet.'
 
 
 def test_renderer_requires_the_canonical_snapshot_fields() -> None:
@@ -250,6 +382,10 @@ def test_top_level_cli_no_longer_exposes_web_command() -> None:
 
 def main() -> int:
     test_page_model_is_derived_from_canonical_snapshot_contract()
+    test_active_with_backlog_fixture_proves_running_and_queued_watch_groups()
+    test_idle_queue_but_closure_unsafe_fixture_keeps_handoff_risk_visible()
+    test_blocked_fixture_proves_attention_state_over_quiet_queue()
+    test_recent_completion_fixture_keeps_recent_success_visible_after_runtime_goes_quiet()
     test_renderer_requires_the_canonical_snapshot_fields()
     test_rendered_html_mentions_the_api_contract_not_a_second_runtime()
     test_initial_page_model_json_is_safe_against_script_breakout()
@@ -259,7 +395,7 @@ def main() -> int:
     test_cli_supports_fixture_and_built_in_smoke_render_paths()
     test_top_level_cli_uses_api_as_the_launch_path_for_browser_work()
     test_top_level_cli_no_longer_exposes_web_command()
-    print('ok: browser viewmodel/html seam renders canonical operator snapshots with compact status chips and clearer human summaries while staying on the api-first read-only path')
+    print('ok: browser viewmodel/html seam renders canonical operator snapshots with fixture-driven proofs for running backlog, closure-unsafe idle, blocked attention, and recent completion emphasis while staying on the api-first read-only path')
     return 0
 
 

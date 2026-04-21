@@ -142,6 +142,57 @@ def test_browser_surface_happy_path(home: Path, *, port: int) -> None:
     assert 'enqueue' not in body.lower()
 
 
+def test_browser_surface_shows_closure_unsafe_idle_as_pending_not_done(home: Path, *, port: int) -> None:
+    state_dir = home / '.agentrunner/projects/demo-closure'
+    write_json(state_dir / 'operator_status.json', {
+        'project': 'demo-closure',
+        'status': 'idle-pending',
+        'current': None,
+        'queue': {'depth': 0, 'nextIds': [], 'preview': []},
+        'initiative': {'initiativeId': 'demo-web-ui', 'phase': 'replan-architect', 'currentSubtaskId': 'proof-hardening'},
+        'closure': {'state': 'closure-active', 'handoffSafe': False, 'quiet': True, 'initiativePhase': 'replan-architect', 'reason': 'closure review and proof hardening still remain before handoff is safe'},
+        'lastCompleted': {'queueItemId': 'developer-1', 'role': 'developer', 'status': 'ok', 'summary': 'Shipped the watch layout refactor.'},
+        'warnings': [],
+        'reconciliation': {'decision': 'idle-pending', 'summary': 'runtime is quiet, but non-terminal closure follow-up still remains before handoff is clean', 'reasons': []},
+        'updatedAt': '2026-04-19T00:00:00Z',
+        'resultHint': None,
+    })
+
+    status, body, headers = fetch_text(f'http://127.0.0.1:{port}/operator?project=demo-closure')
+    assert status == 200
+    assert headers.get('Content-Type', '').startswith('text/html')
+    assert 'Idle pending — runtime is quiet, but closure follow-up still makes handoff unsafe.' in body
+    assert 'queue clear · closure follow-up remains' in body
+    assert 'handoff not safe' in body
+    assert 'Queue is quiet, but handoff is not safe yet.' in body
+    assert 'Most recently finished: developer-1 (ok).' in body
+
+
+def test_browser_surface_shows_blocked_state_and_recent_blocked_completion(home: Path, *, port: int) -> None:
+    state_dir = home / '.agentrunner/projects/demo-blocked'
+    write_json(state_dir / 'operator_status.json', {
+        'project': 'demo-blocked',
+        'status': 'blocked',
+        'current': None,
+        'queue': {'depth': 0, 'nextIds': [], 'preview': []},
+        'initiative': {'initiativeId': 'demo-web-ui', 'phase': 'closure-merger', 'currentSubtaskId': 'watch-surface-fixtures-and-proof-coverage'},
+        'closure': {'state': 'blocked', 'handoffSafe': False, 'quiet': True, 'initiativePhase': 'closure-merger', 'reason': 'merge is blocked and requires intervention before closure can continue'},
+        'lastCompleted': {'queueItemId': 'merger-1', 'role': 'merger', 'status': 'blocked', 'summary': 'ff-only merge is no longer possible without remediation.'},
+        'warnings': [],
+        'reconciliation': {'decision': 'blocked', 'summary': 'most recent completed item ended blocked', 'reasons': []},
+        'updatedAt': '2026-04-19T00:00:00Z',
+        'resultHint': None,
+    })
+
+    status, body, headers = fetch_text(f'http://127.0.0.1:{port}/operator?project=demo-blocked')
+    assert status == 200
+    assert headers.get('Content-Type', '').startswith('text/html')
+    assert 'overall blocked' in body
+    assert 'Work is blocked and needs intervention.' in body
+    assert 'Most recently finished: merger-1 (blocked).' in body
+    assert 'ff-only merge is no longer possible without remediation.' in body
+
+
 def test_browser_surface_degrades_clearly_when_snapshot_is_missing(port: int) -> None:
     status, body, headers = fetch_text(f'http://127.0.0.1:{port}/operator?project=missing')
     assert status == 404
@@ -192,6 +243,8 @@ def main() -> int:
             wait_until_ready(port)
             test_snapshot_happy_path(home, port=port)
             test_browser_surface_happy_path(home, port=port)
+            test_browser_surface_shows_closure_unsafe_idle_as_pending_not_done(home, port=port)
+            test_browser_surface_shows_blocked_state_and_recent_blocked_completion(home, port=port)
             test_browser_surface_degrades_clearly_when_snapshot_is_missing(port)
             test_missing_project_is_a_clear_400(port)
             test_invalid_project_name_is_a_clear_400(port)
