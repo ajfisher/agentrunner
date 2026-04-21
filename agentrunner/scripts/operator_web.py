@@ -164,6 +164,7 @@ STATUS_TONE_MAP: dict[str, str] = {
     "idle-clean": "neutral",
     "idle-pending": "warn",
     "ok": "good",
+    "running": "good",
     "idle": "neutral",
     "paused": "warn",
     "missing": "danger",
@@ -869,7 +870,7 @@ def render_html(model: OperatorPageModel) -> str:
 
       const status = String(snapshot.status || 'unknown');
       const statusLabel = status.replaceAll('-', ' ');
-      const statusToneMap = {{"active": "good", "blocked": "danger", "conflicted": "danger", "idle-clean": "neutral", "idle-pending": "warn", "ok": "good", "idle": "neutral", "paused": "warn", "missing": "danger", "snapshot-unavailable": "danger", "unknown": "warn"}};
+      const statusToneMap = {{"active": "good", "blocked": "danger", "conflicted": "danger", "idle-clean": "neutral", "idle-pending": "warn", "ok": "good", "running": "good", "idle": "neutral", "paused": "warn", "missing": "danger", "snapshot-unavailable": "danger", "unknown": "warn"}};
       let statusSummary = `${{statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1)}} — nothing is running and the queue is clear.`;
       if (current && Object.keys(current).length) {{
         const queueItemId = current.queueItemId || 'current work';

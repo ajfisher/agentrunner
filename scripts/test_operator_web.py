@@ -178,6 +178,20 @@ def test_refresh_model_keeps_paused_status_chip_in_warn_tone() -> None:
     assert "const statusTone = statusToneMap[status] || 'info';" in html
 
 
+def test_running_status_gets_good_tone_in_server_payload_and_refresh_bundle() -> None:
+    envelope = sample_envelope()
+    envelope['snapshot']['status'] = 'running'
+
+    model = operator_web.build_page_model_from_snapshot_envelope(envelope)
+    payload = operator_web.page_model_payload(model)
+    html = operator_web.render_html_from_snapshot_envelope(envelope)
+
+    assert payload['chips'][0] == {'label': 'overall running', 'tone': 'good'}
+    assert '"running": "good"' in html
+    assert 'overall running' in html
+    assert "const statusTone = statusToneMap[status] || 'info';" in html
+
+
 def test_cli_supports_fixture_and_built_in_smoke_render_paths() -> None:
     with tempfile.TemporaryDirectory(prefix='operator-web-') as tmp:
         tmp_path = Path(tmp)
@@ -241,6 +255,7 @@ def main() -> int:
     test_initial_page_model_json_is_safe_against_script_breakout()
     test_unavailable_renderer_uses_degraded_status_chips()
     test_refresh_model_keeps_paused_status_chip_in_warn_tone()
+    test_running_status_gets_good_tone_in_server_payload_and_refresh_bundle()
     test_cli_supports_fixture_and_built_in_smoke_render_paths()
     test_top_level_cli_uses_api_as_the_launch_path_for_browser_work()
     test_top_level_cli_no_longer_exposes_web_command()
