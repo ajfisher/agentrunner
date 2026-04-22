@@ -14,6 +14,7 @@ from status_artifact import build_status_artifact, write_status_artifact
 from operator_mqtt import maybe_publish_operator_snapshot
 from initiative_status import build_status_message_event, ensure_status_message_state, resolve_status_message_operation
 from initiative_status_discord import apply_discord_status_message
+from merger_blockers import MVP_REPAIRABLE_BLOCKER_KINDS, VALID_CLASSIFICATIONS, REPAIRABLE_CLASSIFICATION
 
 
 def iso_now() -> str:
@@ -492,13 +493,14 @@ def validate_result_artifact(result: object, *, expected_role: str) -> tuple[dic
             else:
                 classification = blocker.get('classification')
                 kind = blocker.get('kind')
-                if classification not in ('repairable', 'terminal'):
+                if classification not in VALID_CLASSIFICATIONS:
                     errors.append('mergeBlocker.classification must be repairable or terminal')
                 if not isinstance(kind, str) or not kind.strip():
                     errors.append('mergeBlocker.kind must be a non-empty string')
-                if classification == 'repairable':
-                    if kind != 'non_fast_forward':
-                        errors.append('repairable merger blockers are limited to non_fast_forward in MVP')
+                if classification == REPAIRABLE_CLASSIFICATION:
+                    if kind not in MVP_REPAIRABLE_BLOCKER_KINDS:
+                        supported = ', '.join(sorted(MVP_REPAIRABLE_BLOCKER_KINDS))
+                        errors.append(f'repairable merger blockers are limited to {supported} in MVP')
                     passback = blocker.get('passback')
                     if not isinstance(passback, dict):
                         errors.append('repairable merger blocker must include passback object')

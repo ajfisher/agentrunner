@@ -12,9 +12,11 @@ from pathlib import Path
 try:
     from .initiative_status import build_status_message_event, ensure_status_message_state, resolve_status_message_operation
     from .initiative_status_discord import apply_discord_status_message
+    from .merger_blockers import merger_result_uses_mvp_repairable_passback
 except ImportError:  # pragma: no cover - script-mode fallback
     from initiative_status import build_status_message_event, ensure_status_message_state, resolve_status_message_operation
     from initiative_status_discord import apply_discord_status_message
+    from merger_blockers import merger_result_uses_mvp_repairable_passback
 
 ROOT = Path('/home/openclaw/projects/agentrunner')
 
@@ -330,12 +332,10 @@ def merger_result_passback(result: dict) -> tuple[dict, dict] | tuple[None, None
     blocker = merger_result_blocker(result)
     if blocker is None:
         return None, None
-    if blocker.get('classification') != 'repairable' or blocker.get('kind') != 'non_fast_forward':
+    if not merger_result_uses_mvp_repairable_passback(result, target_role='developer'):
         return None, blocker
     passback = blocker.get('passback')
     if not isinstance(passback, dict):
-        return None, blocker
-    if passback.get('targetRole') != 'developer':
         return None, blocker
     return passback, blocker
 

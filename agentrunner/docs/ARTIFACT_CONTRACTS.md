@@ -157,6 +157,8 @@ Optional but recommended fields:
 Only the following repairable blocker class is in-scope for MVP passback:
 - `non_fast_forward` — the source branch is no longer fast-forward mergeable onto the target and needs a Developer passback/rebase before re-review + merge retry
 
+Mechanics keeps this MVP repairable taxonomy in one shared code path so result validation and closure-remediation routing stay aligned.
+
 For `classification=repairable`, emit:
 - `mergeBlocker.passback.targetRole` — usually `developer`
 - `mergeBlocker.passback.action` — recommended next action such as `rebase`
