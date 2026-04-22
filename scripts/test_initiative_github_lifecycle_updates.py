@@ -32,6 +32,20 @@ def make_fake_gh(bin_dir: Path) -> Path:
         "args = sys.argv[1:]\n"
         "state = json.loads(open(state_path, 'r', encoding='utf-8').read())\n"
         "state.setdefault('calls', []).append(args)\n"
+        "if args[:2] == ['pr', 'view']:\n"
+        "    pr_number = int(args[2])\n"
+        "    pr = state.get('pull_requests_by_number', {}).get(str(pr_number))\n"
+        "    if pr is None:\n"
+        "        open(state_path, 'w', encoding='utf-8').write(json.dumps(state, indent=2) + '\\n')\n"
+        "        print('pr not found', file=sys.stderr)\n"
+        "        raise SystemExit(1)\n"
+        "    open(state_path, 'w', encoding='utf-8').write(json.dumps(state, indent=2) + '\\n')\n"
+        "    print(json.dumps(pr))\n"
+        "    raise SystemExit(0)\n"
+        "if args[:2] == ['pr', 'list']:\n"
+        "    open(state_path, 'w', encoding='utf-8').write(json.dumps(state, indent=2) + '\\n')\n"
+        "    print(json.dumps(state.get('pull_request_list', [])))\n"
+        "    raise SystemExit(0)\n"
         "if args[:2] == ['issue', 'edit'] and '--body' in args:\n"
         "    body = args[args.index('--body') + 1]\n"
         "    state.setdefault('edited_bodies', []).append(body)\n"
@@ -57,6 +71,10 @@ def make_fake_gh(bin_dir: Path) -> Path:
         "    print(json.dumps(issue))\n"
         "    raise SystemExit(0)\n"
         "if args[:1] == ['api'] and '--method' in args and 'POST' in args:\n"
+        "    if args[1].endswith('/pulls'):\n"
+        "        pr = state['created_pull_request']\n"
+        "        print(json.dumps(pr))\n"
+        "        raise SystemExit(0)\n"
         "    issue = state['created_issue']\n"
         "    print(json.dumps(issue))\n"
         "    raise SystemExit(0)\n"
@@ -88,12 +106,22 @@ def seed_repo_and_env(tmp: Path) -> tuple[Path, dict[str, str], Path]:
     fake_state = tmp / 'fake-gh-state.json'
     write_json(fake_state, {
         'issue_list': [],
+        'pull_request_list': [],
         'created_issue': {
             'number': 42,
             'id': 'ISSUE_kwDOAAAB',
             'url': 'https://github.com/acme/agentrunner/issues/42',
             'state': 'OPEN',
             'title': 'GitHub-backed workflow phase 1',
+        },
+        'created_pull_request': {
+            'number': 8,
+            'id': 'PR_kwDOAAAB',
+            'url': 'https://github.com/acme/agentrunner/pull/8',
+            'state': 'OPEN',
+            'title': 'GitHub-backed workflow phase 1',
+            'headRefName': 'feature/agentrunner/github-backed-workflow-phase1',
+            'baseRefName': 'main',
         },
     })
     env = dict(os.environ)
@@ -206,10 +234,100 @@ def test_invoker_merge_blocked_records_degraded_sync_when_issue_refresh_fails() 
         assert saved['githubMirror']['lifecycle']['blockedReason'] == 'Needs human intervention.'
 
 
+
+
+def test_sync_lifecycle_issue_update_creates_late_pull_request_on_closure_transition() -> None:
+    with tempfile.TemporaryDirectory(prefix='initiative-gh-lifecycle-pr-create-') as tmp:
+        temp_root = Path(tmp)
+        repo_copy, env, fake_state = seed_repo_and_env(temp_root)
+        state_path = temp_root / 'state.json'
+        brief_path = temp_root / 'brief.json'
+        write_json(brief_path, {
+            'initiativeId': 'agentrunner-github-backed-workflow-phase1',
+            'title': 'GitHub-backed workflow phase 1',
+            'objective': 'Mirror lifecycle milestones compactly.',
+        })
+        write_json(state_path, {
+            'initiativeId': 'agentrunner-github-backed-workflow-phase1',
+            'phase': 'closure-merger',
+            'currentSubtaskId': None,
+            'managerBriefPath': str(brief_path),
+            'branch': 'feature/agentrunner/github-backed-workflow-phase1',
+            'base': 'main',
+            'githubMirror': {
+                'issue': {'number': 42, 'handle': 'acme/agentrunner#42'},
+            },
+        })
+
+        code = (
+            'from github_backing import sync_lifecycle_issue_update\n'
+            f'path = r"{state_path}"\n'
+            f'repo = r"{repo_copy}"\n'
+            'sync_lifecycle_issue_update(repo_path=repo, initiative_state_path=path, lifecycle_event="initiative_phase_changed", summary="Initiative is queued for closure merge.", queue_item={"id": "merge-queue", "role": "merger", "repo_path": repo}, result={"status": "ok"})\n'
+        )
+        proc = run_python(repo_copy, ['-c', code], env=env)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+
+        fake = load_json(fake_state)
+        pr_list_calls = [call for call in fake['calls'] if call[:2] == ['pr', 'list']]
+        assert len(pr_list_calls) == 1
+        pr_create_calls = [call for call in fake['calls'] if call[:2] == ['api', 'repos/acme/agentrunner/pulls']]
+        assert len(pr_create_calls) == 1
+
+        saved = load_json(state_path)
+        pull_request = saved['githubMirror']['pullRequest']
+        assert pull_request['number'] == 8
+        assert pull_request['headRef'] == 'feature/agentrunner/github-backed-workflow-phase1'
+        assert pull_request['baseRef'] == 'main'
+        assert 'degradedSync' not in saved['githubMirror']
+
+
+def test_merge_blocked_without_explicit_blocked_merger_result_does_not_create_pull_request() -> None:
+    with tempfile.TemporaryDirectory(prefix='initiative-gh-lifecycle-pr-safe-blocked-') as tmp:
+        temp_root = Path(tmp)
+        repo_copy, env, fake_state = seed_repo_and_env(temp_root)
+        state_path = temp_root / 'state.json'
+        brief_path = temp_root / 'brief.json'
+        write_json(brief_path, {
+            'initiativeId': 'agentrunner-github-backed-workflow-phase1',
+            'title': 'GitHub-backed workflow phase 1',
+            'objective': 'Mirror lifecycle milestones compactly.',
+        })
+        write_json(state_path, {
+            'initiativeId': 'agentrunner-github-backed-workflow-phase1',
+            'phase': 'closure-merger',
+            'currentSubtaskId': None,
+            'managerBriefPath': str(brief_path),
+            'branch': 'feature/agentrunner/github-backed-workflow-phase1',
+            'base': 'main',
+            'githubMirror': {
+                'issue': {'number': 42, 'handle': 'acme/agentrunner#42'},
+            },
+        })
+
+        code = (
+            'from github_backing import sync_lifecycle_issue_update\n'
+            f'path = r"{state_path}"\n'
+            f'repo = r"{repo_copy}"\n'
+            'sync_lifecycle_issue_update(repo_path=repo, initiative_state_path=path, lifecycle_event="merge_blocked", summary="Merge blocked by policy.", queue_item={"id": "merge-1", "role": "merger", "repo_path": repo}, result={"status": "blocked"}, blocked_reason="Needs human intervention.")\n'
+        )
+        proc = run_python(repo_copy, ['-c', code], env=env)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+
+        fake = load_json(fake_state)
+        assert not any(call[:1] == ['pr'] for call in fake['calls'])
+        assert not any(call[:2] == ['api', 'repos/acme/agentrunner/pulls'] for call in fake['calls'])
+
+        saved = load_json(state_path)
+        assert 'pullRequest' not in saved['githubMirror']
+        assert saved['githubMirror']['lifecycle']['event'] == 'merge_blocked'
+
 def main() -> int:
     test_sync_lifecycle_issue_update_throttles_duplicate_write_and_persists_projection()
+    test_sync_lifecycle_issue_update_creates_late_pull_request_on_closure_transition()
+    test_merge_blocked_without_explicit_blocked_merger_result_does_not_create_pull_request()
     test_invoker_merge_blocked_records_degraded_sync_when_issue_refresh_fails()
-    print('ok: github-backed lifecycle refreshes stay compact, throttle duplicate writes, and record degraded sync without blocking initiative progress')
+    print('ok: github-backed lifecycle refreshes stay compact, create a late closure PR when needed, and keep blocked merge sync semantics safe')
     return 0
 
 

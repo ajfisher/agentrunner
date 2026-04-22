@@ -129,6 +129,12 @@ def build_issue_handle(config: dict[str, Any], number: object) -> str | None:
     return None
 
 
+def build_pull_request_handle(config: dict[str, Any], number: object) -> str | None:
+    if isinstance(number, int):
+        return f"{config['owner']}/{config['repo']}#PR{number}"
+    return None
+
+
 def issue_marker(initiative_id: str) -> str:
     return f'Initiative ID: {initiative_id}'
 
@@ -171,6 +177,8 @@ def build_issue_body(*, initiative_id: str, brief: dict[str, Any], initiative_st
     lifecycle = github_mirror.get('lifecycle') if isinstance(github_mirror.get('lifecycle'), dict) else {}
     degraded = github_mirror.get('degradedSync') if isinstance(github_mirror.get('degradedSync'), dict) else {}
 
+    pull_request = github_mirror.get('pullRequest') if isinstance(github_mirror.get('pullRequest'), dict) else {}
+
     status_lines = [
         _status_line('Lifecycle', lifecycle.get('event')),
         _status_line('Phase', initiative_state.get('phase')),
@@ -180,6 +188,7 @@ def build_issue_body(*, initiative_id: str, brief: dict[str, Any], initiative_st
         _status_line('Role', lifecycle.get('role')),
         _status_line('Result', lifecycle.get('resultStatus')),
         _status_line('Commit', lifecycle.get('commit')),
+        _status_line('Pull request', pull_request.get('handle') or pull_request.get('url')),
         _status_line('Blocked reason', lifecycle.get('blockedReason')),
         _status_line('Updated', lifecycle.get('writtenAt') or github_mirror.get('lastSyncAt')),
     ]
@@ -203,6 +212,101 @@ def build_issue_body(*, initiative_id: str, brief: dict[str, Any], initiative_st
             lines.extend(degraded_lines)
 
     return '\n'.join(lines).strip() + '\n'
+
+
+def normalize_pull_request_record(config: dict[str, Any], payload: object) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    number = payload.get('number')
+    if isinstance(number, str) and number.isdigit():
+        number = int(number)
+    if not isinstance(number, int):
+        return None
+    pull_request: dict[str, Any] = {
+        'number': number,
+        'handle': build_pull_request_handle(config, number),
+    }
+    for field in ('id', 'url', 'state', 'title'):
+        value = payload.get(field)
+        if isinstance(value, str) and value.strip():
+            pull_request[field] = value.strip()
+    head_ref = payload.get('headRefName')
+    if isinstance(head_ref, str) and head_ref.strip():
+        pull_request['headRef'] = head_ref.strip()
+    base_ref = payload.get('baseRefName')
+    if isinstance(base_ref, str) and base_ref.strip():
+        pull_request['baseRef'] = base_ref.strip()
+    return pull_request
+
+
+def _should_sync_pull_request(*, lifecycle_event: str, initiative_state: dict[str, Any], queue_item: dict[str, Any] | None = None, result: dict[str, Any] | None = None) -> bool:
+    queue_item = queue_item if isinstance(queue_item, dict) else {}
+    result = result if isinstance(result, dict) else {}
+    phase = str(initiative_state.get('phase') or '').strip()
+    role = str(queue_item.get('role') or '').strip()
+
+    if lifecycle_event == 'merge_completed' and role == 'merger' and result.get('merged') is True:
+        return True
+    if lifecycle_event == 'merge_blocked' and role == 'merger' and result.get('status') == 'blocked' and result.get('merged') is False:
+        return True
+    if lifecycle_event == 'initiative_phase_changed' and phase == 'closure-merger':
+        return True
+    return False
+
+
+def reconcile_remote_pull_request(*, repo_path: str | Path, config: dict[str, Any], initiative_id: str, brief: dict[str, Any], initiative_state: dict[str, Any]) -> dict[str, Any]:
+    mirror = initiative_state.get('githubMirror') if isinstance(initiative_state.get('githubMirror'), dict) else {}
+    existing_pull_request = mirror.get('pullRequest') if isinstance(mirror.get('pullRequest'), dict) else {}
+
+    pr_number = existing_pull_request.get('number')
+    if isinstance(pr_number, str) and pr_number.isdigit():
+        pr_number = int(pr_number)
+    if isinstance(pr_number, int):
+        viewed = _run_gh(repo_path, config, ['pr', 'view', str(pr_number), '--json', 'id,number,url,state,title,headRefName,baseRefName'])
+        pull_request = normalize_pull_request_record(config, viewed)
+        if pull_request is not None:
+            return pull_request
+
+    branch = initiative_state.get('branch')
+    base = initiative_state.get('base')
+    if not isinstance(branch, str) or not branch.strip() or not isinstance(base, str) or not base.strip():
+        raise RuntimeError('cannot mirror pull request without initiative branch/base refs')
+
+    matches = _run_gh(
+        repo_path,
+        config,
+        ['pr', 'list', '--state', 'all', '--head', branch, '--base', base, '--json', 'id,number,url,state,title,headRefName,baseRefName'],
+    )
+    if isinstance(matches, list) and matches:
+        normalized = [normalize_pull_request_record(config, item) for item in matches]
+        candidates = [item for item in normalized if item is not None]
+        if candidates:
+            candidates.sort(key=lambda item: int(item['number']))
+            return candidates[0]
+
+    title = str(brief.get('title') or initiative_id)
+    created = _run_gh(
+        repo_path,
+        config,
+        [
+            'api',
+            f"repos/{config['owner']}/{config['repo']}/pulls",
+            '--method',
+            'POST',
+            '-f',
+            f'title={title}',
+            '-f',
+            f'body={build_issue_body(initiative_id=initiative_id, brief=brief, initiative_state=initiative_state)}',
+            '-f',
+            f'head={branch}',
+            '-f',
+            f'base={base}',
+        ],
+    )
+    pull_request = normalize_pull_request_record(config, created)
+    if pull_request is None:
+        raise RuntimeError('GitHub pull request create did not return a usable pull request payload')
+    return pull_request
 
 
 def normalize_issue_record(config: dict[str, Any], payload: object) -> dict[str, Any] | None:
@@ -384,6 +488,33 @@ def sync_lifecycle_issue_update(*, repo_path: str | Path, initiative_state_path:
 
     now = iso_now()
     github_mirror['config'] = dict(config)
+
+    if _should_sync_pull_request(lifecycle_event=lifecycle_event, initiative_state=initiative_state, queue_item=queue_item, result=result):
+        try:
+            pull_request = reconcile_remote_pull_request(
+                repo_path=repo_root,
+                config=config,
+                initiative_id=initiative_id,
+                brief=brief,
+                initiative_state=initiative_state,
+            )
+        except Exception as exc:
+            _record_degraded_sync(
+                github_mirror,
+                now=now,
+                reason='pull_request_sync_failed',
+                summary=f'GitHub pull request sync failed for {lifecycle_event}: {exc}',
+            )
+            initiative_state['githubMirror'] = github_mirror
+            save_json(state_path, initiative_state)
+            return github_mirror
+        github_mirror['pullRequest'] = pull_request
+        initiative_state['githubMirror'] = github_mirror
+
+    current_pull_request = github_mirror.get('pullRequest') if isinstance(github_mirror.get('pullRequest'), dict) else None
+    if current_pull_request:
+        initiative_state['githubMirror'] = github_mirror
+
     lifecycle = _build_lifecycle_projection(
         lifecycle_event=lifecycle_event,
         initiative_state=initiative_state,
