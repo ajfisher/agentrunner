@@ -10,6 +10,39 @@ Files:
 - `results/<queueItemId>.json` – deterministic completion/result artifact written by workers
 - `operator_status.json` – canonical operator-facing status summary derived from the runtime truth files above
 
+## Optional GitHub-backed workflow mirroring (Phase 1)
+
+Phase 1 adds an **optional mirror seam** for GitHub issue/PR visibility without changing local mechanics authority.
+
+Authority rules:
+- local queue/state/ticks/results remain the only scheduling and completion authority
+- GitHub is an optional mirror / projection surface for operators and collaborators
+- a missing, stale, or failed GitHub sync must not rewrite `queue.json`, `queue_events.ndjson`, `ticks.ndjson`, or result artifacts
+- any GitHub degradation should be recorded as state, not silently treated as queue truth
+
+Project-level configuration location:
+- repo/owner settings live in the repo-controlled `pyproject.toml` under `[tool.agentrunner.github]`
+- this keeps stable GitHub coordinates with the project source, rather than burying them in ephemeral runtime state
+- Phase 1 expected fields are:
+  - `enabled` — boolean toggle for GitHub mirroring
+  - `owner` — GitHub owner/org slug
+  - `repo` — GitHub repository name
+  - `baseUrl` — optional GitHub API/base URL override for enterprise/self-hosted setups
+
+Initiative-local persistence location:
+- persisted GitHub linkage and sync health live under `initiatives/<initiativeId>/state.json` in a compact `githubMirror` block
+- this is initiative-local on purpose: issue/PR linkage belongs to the initiative timeline, not the global queue authority
+- Phase 1 expected persisted fields are:
+  - `issue` — optional linked issue summary (`number`, `id`, `url`, `state`)
+  - `pullRequest` — optional linked PR summary (`number`, `id`, `url`, `state`, `headRef`, `baseRef`)
+  - `lastSyncAt` — last successful mirror timestamp
+  - `degradedSync` — optional degradation record when mirror writes/reads fail non-fatally
+    - recommended fields: `status`, `reason`, `firstSeenAt`, `lastSeenAt`, `lastAttemptAt`, `summary`
+
+Boundary rule:
+- `state.json.initiative` may summarize that mirrored state for operator convenience, but the durable issue/PR linkage and degraded-sync record live in initiative-local state
+- operator surfaces may reflect degraded GitHub sync as warnings, but they must continue to derive execution truth from local mechanics files first
+
 ## `state.json.initiative` pointer contract
 
 When present, `state.json.initiative` is the project's **active initiative pointer**.

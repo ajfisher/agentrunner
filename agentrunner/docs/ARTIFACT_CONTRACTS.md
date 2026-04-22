@@ -202,6 +202,36 @@ A handoff artifact is written to `HANDOFF_PATH` when a Reviewer requests follow-
 
 Canonical branch contract: use `main` as the steady-state `base` branch in new artifacts and examples. Any surviving `master` strings should only appear inside intentionally preserved historical proof notes or test/smoke fixtures that verify legacy-branch handling and preserved proof payloads.
 
+## Initiative-local GitHub mirror state contract (Phase 1)
+
+Optional GitHub-backed workflow mirroring does **not** introduce a new authority artifact. It extends initiative-local state only.
+
+Persistence location:
+- `initiatives/<initiativeId>/state.json`
+- recommended field: `githubMirror`
+
+Purpose:
+- persist external issue/PR linkage for the initiative
+- record degraded-sync state when GitHub projection fails or becomes stale
+- avoid storing these external references in `queue.json`, `queue_events.ndjson`, `ticks.ndjson`, or result artifacts as if they were authoritative mechanics truth
+
+Recommended `githubMirror` shape:
+- `config` — optional normalized snapshot of the resolved project-level GitHub config used for this initiative
+  - recommended fields: `enabled`, `owner`, `repo`, `baseUrl`
+- `issue` — optional linked issue object
+  - recommended fields: `number`, `id`, `url`, `state`
+- `pullRequest` — optional linked PR object
+  - recommended fields: `number`, `id`, `url`, `state`, `headRef`, `baseRef`
+- `lastSyncAt` — ISO-8601 timestamp for the last successful mirror sync
+- `degradedSync` — optional non-fatal degradation record
+  - recommended fields: `status`, `reason`, `summary`, `firstSeenAt`, `lastSeenAt`, `lastAttemptAt`
+
+Interpretation rules:
+- absence of `githubMirror` means no GitHub mirror has been established for the initiative yet
+- presence of `degradedSync` means GitHub mirror state is degraded, not that local execution is blocked by default
+- local queue and result processing continue even when `degradedSync` is present, unless a separate mechanics-owned blocker says otherwise
+- result artifacts may mention mirror activity in `summary`/`operatorSummary`, but the durable linkage record belongs in initiative-local state
+
 ## Review findings artifact
 When mechanics inserts a follow-up Developer item, it may also materialize a stable review-findings artifact under the project state directory, e.g.:
 - `/home/openclaw/.agentrunner/projects/<project>/review_findings/<queueItemId>.json`
