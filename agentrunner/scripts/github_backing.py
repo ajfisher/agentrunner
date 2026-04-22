@@ -26,6 +26,23 @@ def load_json(path: str | Path, default):
     return json.loads(p.read_text())
 
 
+def save_json(path: str | Path, obj) -> None:
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(obj, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+
+
+def clip(value: object, limit: int = 160) -> str | None:
+    if value is None:
+        return None
+    text = ' '.join(str(value).strip().split())
+    if not text:
+        return None
+    if len(text) <= limit:
+        return text
+    return text[: max(1, limit - 1)] + '…'
+
+
 def normalize_github_config(raw: object) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
@@ -116,6 +133,13 @@ def issue_marker(initiative_id: str) -> str:
     return f'Initiative ID: {initiative_id}'
 
 
+def _status_line(label: str, value: object) -> str | None:
+    text = clip(value, 160)
+    if not text:
+        return None
+    return f'- **{label}:** {text}'
+
+
 def build_issue_body(*, initiative_id: str, brief: dict[str, Any], initiative_state: dict[str, Any]) -> str:
     lines: list[str] = [
         f'# {brief.get("title") or initiative_id}',
@@ -142,6 +166,41 @@ def build_issue_body(*, initiative_id: str, brief: dict[str, Any], initiative_st
         lines += ['', f'Branch: `{branch}`']
     if isinstance(base, str) and base.strip():
         lines.append(f'Base: `{base}`')
+
+    github_mirror = initiative_state.get('githubMirror') if isinstance(initiative_state.get('githubMirror'), dict) else {}
+    lifecycle = github_mirror.get('lifecycle') if isinstance(github_mirror.get('lifecycle'), dict) else {}
+    degraded = github_mirror.get('degradedSync') if isinstance(github_mirror.get('degradedSync'), dict) else {}
+
+    status_lines = [
+        _status_line('Lifecycle', lifecycle.get('event')),
+        _status_line('Phase', initiative_state.get('phase')),
+        _status_line('Current subtask', initiative_state.get('currentSubtaskId') or '-'),
+        _status_line('Summary', lifecycle.get('summary')),
+        _status_line('Queue item', lifecycle.get('queueItemId')),
+        _status_line('Role', lifecycle.get('role')),
+        _status_line('Result', lifecycle.get('resultStatus')),
+        _status_line('Commit', lifecycle.get('commit')),
+        _status_line('Blocked reason', lifecycle.get('blockedReason')),
+        _status_line('Updated', lifecycle.get('writtenAt') or github_mirror.get('lastSyncAt')),
+    ]
+    status_lines = [line for line in status_lines if line]
+    if status_lines:
+        lines += ['', '## Current status']
+        lines.extend(status_lines)
+
+    if degraded:
+        degraded_lines = [
+            _status_line('State', degraded.get('status')),
+            _status_line('Reason', degraded.get('reason')),
+            _status_line('Summary', degraded.get('summary')),
+            _status_line('First seen', degraded.get('firstSeenAt')),
+            _status_line('Last seen', degraded.get('lastSeenAt')),
+            _status_line('Last attempt', degraded.get('lastAttemptAt')),
+        ]
+        degraded_lines = [line for line in degraded_lines if line]
+        if degraded_lines:
+            lines += ['', '## Sync health']
+            lines.extend(degraded_lines)
 
     return '\n'.join(lines).strip() + '\n'
 
@@ -210,6 +269,23 @@ def reconcile_remote_issue(*, repo_path: str | Path, config: dict[str, Any], ini
     return issue
 
 
+def _record_degraded_sync(github_mirror: dict[str, Any], *, now: str, reason: str, summary: str) -> None:
+    degraded = github_mirror.get('degradedSync') if isinstance(github_mirror.get('degradedSync'), dict) else {}
+    first_seen = degraded.get('firstSeenAt') if isinstance(degraded.get('firstSeenAt'), str) and degraded.get('firstSeenAt').strip() else now
+    github_mirror['degradedSync'] = {
+        'status': 'degraded',
+        'reason': reason,
+        'summary': clip(summary, 240),
+        'firstSeenAt': first_seen,
+        'lastSeenAt': now,
+        'lastAttemptAt': now,
+    }
+
+
+def _clear_degraded_sync(github_mirror: dict[str, Any]) -> None:
+    github_mirror.pop('degradedSync', None)
+
+
 def sync_manager_kickoff_issue(*, repo_path: str | Path, initiative_state_path: str | Path) -> dict[str, Any] | None:
     repo_root = Path(repo_path)
     config = load_project_github_config(repo_root)
@@ -242,23 +318,111 @@ def sync_manager_kickoff_issue(*, repo_path: str | Path, initiative_state_path: 
             initiative_state=initiative_state,
         )
     except Exception as exc:
-        degraded = github_mirror.get('degradedSync') if isinstance(github_mirror.get('degradedSync'), dict) else {}
-        first_seen = degraded.get('firstSeenAt') if isinstance(degraded.get('firstSeenAt'), str) and degraded.get('firstSeenAt').strip() else now
-        github_mirror['degradedSync'] = {
-            'status': 'degraded',
-            'reason': 'issue_sync_failed',
-            'summary': f'GitHub initiative issue sync failed during manager kickoff: {exc}',
-            'firstSeenAt': first_seen,
-            'lastSeenAt': now,
-            'lastAttemptAt': now,
-        }
+        _record_degraded_sync(
+            github_mirror,
+            now=now,
+            reason='issue_sync_failed',
+            summary=f'GitHub initiative issue sync failed during manager kickoff: {exc}',
+        )
         initiative_state['githubMirror'] = github_mirror
-        state_path.write_text(json.dumps(initiative_state, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+        save_json(state_path, initiative_state)
         return github_mirror
 
     github_mirror['issue'] = issue
     github_mirror['lastSyncAt'] = now
-    github_mirror.pop('degradedSync', None)
+    _clear_degraded_sync(github_mirror)
     initiative_state['githubMirror'] = github_mirror
-    state_path.write_text(json.dumps(initiative_state, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+    save_json(state_path, initiative_state)
+    return github_mirror
+
+
+def _build_lifecycle_projection(*, lifecycle_event: str, initiative_state: dict[str, Any], summary: str | None = None, queue_item: dict[str, Any] | None = None, result: dict[str, Any] | None = None, blocked_reason: str | None = None) -> dict[str, Any]:
+    queue_item = queue_item if isinstance(queue_item, dict) else {}
+    result = result if isinstance(result, dict) else {}
+    return {
+        'event': lifecycle_event,
+        'phase': clip(initiative_state.get('phase'), 64),
+        'currentSubtaskId': clip(initiative_state.get('currentSubtaskId') or '-', 96),
+        'summary': clip(summary, 240),
+        'queueItemId': clip(queue_item.get('id') or queue_item.get('queueItemId'), 96),
+        'role': clip(queue_item.get('role'), 48),
+        'resultStatus': clip(result.get('status'), 32),
+        'commit': clip(result.get('commit'), 16),
+        'blockedReason': clip(blocked_reason, 240),
+        'writtenAt': iso_now(),
+    }
+
+
+def _lifecycle_digest(payload: dict[str, Any]) -> str:
+    comparable = {k: v for k, v in payload.items() if k != 'writtenAt'}
+    return json.dumps(comparable, sort_keys=True, ensure_ascii=False)
+
+
+def sync_lifecycle_issue_update(*, repo_path: str | Path, initiative_state_path: str | Path, lifecycle_event: str, summary: str | None = None, queue_item: dict[str, Any] | None = None, result: dict[str, Any] | None = None, blocked_reason: str | None = None) -> dict[str, Any] | None:
+    repo_root = Path(repo_path)
+    config = load_project_github_config(repo_root)
+    if config is None:
+        return None
+
+    state_path = Path(initiative_state_path)
+    initiative_state = load_json(state_path, {})
+    if not isinstance(initiative_state, dict):
+        return None
+    initiative_id = initiative_state.get('initiativeId')
+    if not isinstance(initiative_id, str) or not initiative_id.strip():
+        return None
+
+    brief_path = initiative_state.get('managerBriefPath')
+    brief = load_json(brief_path, {}) if brief_path else {}
+    if not isinstance(brief, dict):
+        brief = {}
+
+    github_mirror = initiative_state.get('githubMirror') if isinstance(initiative_state.get('githubMirror'), dict) else {}
+    issue = github_mirror.get('issue') if isinstance(github_mirror.get('issue'), dict) else None
+    if not issue:
+        return None
+
+    now = iso_now()
+    github_mirror['config'] = dict(config)
+    lifecycle = _build_lifecycle_projection(
+        lifecycle_event=lifecycle_event,
+        initiative_state=initiative_state,
+        summary=summary,
+        queue_item=queue_item,
+        result=result,
+        blocked_reason=blocked_reason,
+    )
+    digest = _lifecycle_digest(lifecycle)
+    current = github_mirror.get('lifecycle') if isinstance(github_mirror.get('lifecycle'), dict) else {}
+    if current.get('digest') == digest:
+        return github_mirror
+
+    lifecycle['digest'] = digest
+    github_mirror['lifecycle'] = lifecycle
+    initiative_state['githubMirror'] = github_mirror
+
+    try:
+        _run_gh(
+            repo_root,
+            config,
+            [
+                'issue', 'edit', str(issue['number']),
+                '--body', build_issue_body(initiative_id=initiative_id, brief=brief, initiative_state=initiative_state),
+            ],
+        )
+    except Exception as exc:
+        _record_degraded_sync(
+            github_mirror,
+            now=now,
+            reason='lifecycle_sync_failed',
+            summary=f'GitHub issue lifecycle refresh failed for {lifecycle_event}: {exc}',
+        )
+        initiative_state['githubMirror'] = github_mirror
+        save_json(state_path, initiative_state)
+        return github_mirror
+
+    github_mirror['lastSyncAt'] = now
+    _clear_degraded_sync(github_mirror)
+    initiative_state['githubMirror'] = github_mirror
+    save_json(state_path, initiative_state)
     return github_mirror

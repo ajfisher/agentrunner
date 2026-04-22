@@ -12,6 +12,7 @@ VALID_ROLES = {'developer', 'reviewer', 'manager', 'merger', 'architect'}
 
 from status_artifact import build_status_artifact, write_status_artifact
 from operator_mqtt import maybe_publish_operator_snapshot
+from github_backing import sync_lifecycle_issue_update
 from initiative_status import build_status_message_event, ensure_status_message_state, resolve_status_message_operation
 from initiative_status_discord import apply_discord_status_message
 from merger_blockers import MVP_REPAIRABLE_BLOCKER_KINDS, VALID_CLASSIFICATIONS, REPAIRABLE_CLASSIFICATION
@@ -157,6 +158,17 @@ def emit_initiative_status_update(state_dir: str | Path, *, queue_item: dict | N
         target=effective_target,
     )
     save_json(initiative_state_path, initiative_state)
+    repo_path = queue_item.get('repo_path')
+    if isinstance(repo_path, str) and repo_path.strip():
+        sync_lifecycle_issue_update(
+            repo_path=repo_path,
+            initiative_state_path=initiative_state_path,
+            lifecycle_event=lifecycle_event,
+            summary=summary,
+            queue_item=queue_item,
+            result=result,
+            blocked_reason=blocked_reason,
+        )
     return True
 
 

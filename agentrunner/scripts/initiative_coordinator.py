@@ -10,12 +10,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 try:
-    from .github_backing import sync_manager_kickoff_issue
+    from .github_backing import sync_lifecycle_issue_update, sync_manager_kickoff_issue
     from .initiative_status import build_status_message_event, ensure_status_message_state, resolve_status_message_operation
     from .initiative_status_discord import apply_discord_status_message
     from .merger_blockers import merger_result_uses_mvp_repairable_passback
 except ImportError:  # pragma: no cover - script-mode fallback
-    from github_backing import sync_manager_kickoff_issue
+    from github_backing import sync_lifecycle_issue_update, sync_manager_kickoff_issue
     from initiative_status import build_status_message_event, ensure_status_message_state, resolve_status_message_operation
     from initiative_status_discord import apply_discord_status_message
     from merger_blockers import merger_result_uses_mvp_repairable_passback
@@ -106,6 +106,24 @@ def emit_status_message(initiative_state: dict, *, lifecycle_event: str, summary
         target=effective_target,
     )
     return True
+
+
+def sync_github_lifecycle(initiative_state_path: str | Path | None, *, lifecycle_event: str, summary: str, queue_item: dict | None = None, result: dict | None = None, blocked_reason: str | None = None) -> bool:
+    if not initiative_state_path:
+        return False
+    repo_path = queue_item.get('repo_path') if isinstance(queue_item, dict) else None
+    if not isinstance(repo_path, str) or not repo_path.strip():
+        return False
+    updated = sync_lifecycle_issue_update(
+        repo_path=repo_path,
+        initiative_state_path=initiative_state_path,
+        lifecycle_event=lifecycle_event,
+        summary=summary,
+        queue_item=queue_item,
+        result=result,
+        blocked_reason=blocked_reason,
+    )
+    return isinstance(updated, dict)
 
 
 def append_queue_event(state_dir: str, kind: str, *, item: dict | None = None, id: str | None = None, status: str | None = None) -> None:
@@ -666,6 +684,17 @@ def maybe_advance(state_dir: str) -> bool:
                 initiative_state = load_json(initiative_state_path, initiative_state)
             enqueue_architect_item(state_dir, project=state.get('project'), queue_item=queue_item, initiative_state=initiative_state)
             save_json(initiative_state_path, initiative_state)
+            sync_github_lifecycle(
+                initiative_state_path,
+                lifecycle_event='initiative_activated',
+                summary=f"Initiative {initiative['initiativeId']} activated and handed to Architect planning.",
+                queue_item={
+                    'id': f"{initiative['initiativeId']}-architect",
+                    'role': 'architect',
+                    'repo_path': queue_item.get('repo_path'),
+                },
+            )
+            initiative_state = load_json(initiative_state_path, initiative_state)
             state['initiative'] = {'initiativeId': initiative['initiativeId'], 'phase': initiative_state.get('phase'), 'statePath': str(initiative_state_path)}
             save_json(state_path, state)
             return True
@@ -739,6 +768,21 @@ def maybe_advance(state_dir: str) -> bool:
                 return False
 
             save_json(initiative_state_path, initiative_state)
+            if choice == 'complete':
+                sync_github_lifecycle(
+                    initiative_state_path,
+                    lifecycle_event='initiative_phase_changed',
+                    summary=f"Initiative {initiative_id} passed manager review and is queued for merger closure.",
+                    queue_item=merger_item,
+                )
+            else:
+                sync_github_lifecycle(
+                    initiative_state_path,
+                    lifecycle_event='initiative_phase_changed',
+                    summary=f"Initiative {initiative_id} needs an Architect replan pass before closure.",
+                    queue_item=architect_item,
+                )
+            initiative_state = load_json(initiative_state_path, initiative_state)
             state['initiative'] = {'initiativeId': initiative['initiativeId'], 'phase': initiative_state.get('phase'), 'statePath': str(initiative_state_path)}
             save_json(state_path, state)
             return True
@@ -752,6 +796,17 @@ def maybe_advance(state_dir: str) -> bool:
         plan = load_json(plan_path, {})
         enqueue_first_subtask(state_dir, project=state.get('project'), queue_item=queue_item, initiative_state=initiative_state, plan=plan)
         save_json(initiative_state_path, initiative_state)
+        sync_github_lifecycle(
+            initiative_state_path,
+            lifecycle_event='subtask_started',
+            summary=f"Started initiative subtask {initiative_state.get('currentSubtaskId') or '-'}.",
+            queue_item={
+                'id': f"{initiative['initiativeId']}-{initiative_state.get('currentSubtaskId') or '-'}",
+                'role': 'developer',
+                'repo_path': queue_item.get('repo_path'),
+            },
+        )
+        initiative_state = load_json(initiative_state_path, initiative_state)
         state['initiative'] = {'initiativeId': initiative['initiativeId'], 'phase': initiative_state.get('phase'), 'statePath': str(initiative_state_path)}
         save_json(state_path, state)
         return True
@@ -868,6 +923,23 @@ def maybe_advance(state_dir: str) -> bool:
             initiative_state['currentSubtaskId'] = None
 
         save_json(initiative_state_path, initiative_state)
+        if pending:
+            sync_github_lifecycle(
+                initiative_state_path,
+                lifecycle_event='subtask_started',
+                summary=f"Started initiative subtask {initiative_state.get('currentSubtaskId') or '-'}.",
+                queue_item=item,
+                result=result,
+            )
+        else:
+            sync_github_lifecycle(
+                initiative_state_path,
+                lifecycle_event='initiative_phase_changed',
+                summary=f"All implementation subtasks are approved; initiative {initiative_id} is queued for manager closure review.",
+                queue_item=manager_item,
+                result=result,
+            )
+        initiative_state = load_json(initiative_state_path, initiative_state)
         state['initiative'] = {'initiativeId': initiative['initiativeId'], 'phase': initiative_state.get('phase'), 'statePath': str(initiative_state_path)}
         save_json(state_path, state)
         return True
