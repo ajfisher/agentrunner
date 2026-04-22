@@ -31,7 +31,7 @@ def base_initiative_state() -> dict:
         'completedSubtasks': [],
         'pendingSubtasks': [],
         'branch': 'feature/agentrunner/status-message-adapters',
-        'base': 'master',
+        'base': 'main',
     }
     ensure_status_message_state(state)
     return state
@@ -99,7 +99,7 @@ def test_invoker_blocked_and_terminal_updates_edit_existing_message() -> None:
             'completedSubtasks': ['lifecycle-wiring'],
             'pendingSubtasks': [],
             'branch': 'feature/agentrunner/status-message-adapters',
-            'base': 'master',
+            'base': 'main',
             'writtenAt': '2026-04-21T00:00:00+00:00',
             'statusMessage': {
                 'target': dict(TARGET),
@@ -123,7 +123,7 @@ def test_invoker_blocked_and_terminal_updates_edit_existing_message() -> None:
                     'id': f'{initiative_id}-merger',
                     'role': 'merger',
                     'branch': 'feature/agentrunner/status-message-adapters',
-                    'base': 'master',
+                    'base': 'main',
                     'initiative': {'initiativeId': initiative_id},
                 },
                 result={
@@ -140,7 +140,7 @@ def test_invoker_blocked_and_terminal_updates_edit_existing_message() -> None:
                     'id': f'{initiative_id}-merger',
                     'role': 'merger',
                     'branch': 'feature/agentrunner/status-message-adapters',
-                    'base': 'master',
+                    'base': 'main',
                     'initiative': {'initiativeId': initiative_id},
                 },
                 result={
@@ -190,7 +190,7 @@ def test_coordinator_merger_blocked_out_of_scope_persists_initiative_blocked() -
                     'role': 'merger',
                     'repo_path': str(ROOT),
                     'branch': 'feature/agentrunner/status-message-adapters',
-                    'base': 'master',
+                    'base': 'main',
                     'initiative': {'initiativeId': initiative_id, 'phase': 'closure-merger'},
                 },
             },
@@ -202,7 +202,7 @@ def test_coordinator_merger_blocked_out_of_scope_persists_initiative_blocked() -
             'completedSubtasks': ['lifecycle-wiring'],
             'pendingSubtasks': [],
             'branch': 'feature/agentrunner/status-message-adapters',
-            'base': 'master',
+            'base': 'main',
             'writtenAt': '2026-04-21T00:00:00+00:00',
             'statusMessage': {
                 'target': dict(TARGET),

@@ -34,7 +34,7 @@ def main() -> int:
     ap.add_argument('--risk', action='append', default=[])
     ap.add_argument('--project')
     ap.add_argument('--repo-path')
-    ap.add_argument('--base-branch')
+    ap.add_argument('--base-branch', default='main')
     ap.add_argument('--suggested-branch')
     ap.add_argument('--max-subtasks', type=int)
     args = ap.parse_args()

@@ -52,7 +52,7 @@ def sample_artifact(*, status: str = 'blocked', warnings: list[dict] | None = No
             'phase': 'implementation',
             'currentSubtaskId': 'operator-tui-proof-and-docs',
             'branch': 'feature/agentrunner/operator-tui',
-            'base': 'master',
+            'base': 'main',
             'statePath': '/tmp/initiative-state.json',
         },
         'lastCompleted': {

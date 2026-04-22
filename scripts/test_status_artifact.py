@@ -57,7 +57,7 @@ def init_status_repo(repo: Path, *, branch: str) -> None:
     (repo / 'README.md').write_text('ok\n', encoding='utf-8')
     subprocess.run(['git', 'add', 'README.md'], cwd=repo, check=True)
     subprocess.run(['git', 'commit', '-m', 'initial'], cwd=repo, check=True, capture_output=True, text=True)
-    subprocess.run(['git', 'branch', 'master'], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(['git', 'branch', 'main'], cwd=repo, check=True, capture_output=True, text=True)
 
 
 def test_active_queue_and_initiative_summary(state_dir: Path) -> None:
@@ -67,7 +67,7 @@ def test_active_queue_and_initiative_summary(state_dir: Path) -> None:
         'phase': 'implementation',
         'currentSubtaskId': 'status-proof-tests',
         'branch': 'feature/agentrunner/operator-status-artifact',
-        'base': 'master',
+        'base': 'main',
     })
 
     active_item = make_queue_item(
@@ -81,7 +81,7 @@ def test_active_queue_and_initiative_summary(state_dir: Path) -> None:
             'subtaskId': 'kickoff',
             'statePath': str(initiative_state),
             'branch': 'feature/agentrunner/operator-status-artifact',
-            'base': 'master',
+            'base': 'main',
         },
     )
     next_item = make_queue_item(
@@ -150,7 +150,7 @@ def test_active_queue_and_initiative_summary(state_dir: Path) -> None:
         'phase': 'implementation',
         'currentSubtaskId': 'status-proof-tests',
         'branch': 'feature/agentrunner/operator-status-artifact',
-        'base': 'master',
+        'base': 'main',
         'statePath': str(initiative_state),
         'statusMessage': None,
         'closureRemediation': None,
@@ -211,7 +211,7 @@ def test_closure_active_requires_more_than_merely_being_quiet(state_dir: Path) -
         'initiativeId': 'closure-semantics',
         'phase': 'review-manager',
         'branch': 'feature/agentrunner/closure-handoff-state-semantics',
-        'base': 'master',
+        'base': 'main',
     })
     write_json(state_dir / 'state.json', {
         'project': 'agentrunner',
@@ -244,7 +244,7 @@ def test_closure_active_reason_covers_quiet_manager_to_architect_replan_handoff(
         'initiativeId': 'closure-replan-handoff',
         'phase': 'replan-architect',
         'branch': 'feature/agentrunner/closure-handoff-state-semantics',
-        'base': 'master',
+        'base': 'main',
     })
     write_json(state_dir / 'state.json', {
         'project': 'agentrunner',
@@ -278,7 +278,7 @@ def test_closure_active_reason_covers_proof_hardening_even_when_runtime_is_idle_
         'initiativeId': 'closure-proof-hardening',
         'phase': 'implementation',
         'branch': 'feature/agentrunner/closure-handoff-state-semantics',
-        'base': 'master',
+        'base': 'main',
         'remediation': {
             'activeAttempt': {
                 'attempt': 2,
@@ -406,7 +406,7 @@ def test_live_repo_can_outrank_stale_blocked_result_when_runtime_is_otherwise_cl
             'queueItem': {
                 'repo_path': str(repo),
                 'branch': 'feature/agentrunner/operator-status-artifact',
-                'base': 'master',
+                'base': 'main',
             },
         },
     })
@@ -428,7 +428,7 @@ def test_live_repo_on_base_can_outrank_stale_blocked_merger_tail_when_feature_is
 
     repo = state_dir / 'repo-on-base'
     init_status_repo(repo, branch='feature/agentrunner/operator-status-artifact')
-    subprocess.run(['git', 'checkout', 'master'], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(['git', 'checkout', 'main'], cwd=repo, check=True, capture_output=True, text=True)
     subprocess.run(['git', 'merge', '--ff-only', 'feature/agentrunner/operator-status-artifact'], cwd=repo, check=True, capture_output=True, text=True)
 
     write_json(state_dir / 'state.json', {
@@ -444,7 +444,7 @@ def test_live_repo_on_base_can_outrank_stale_blocked_merger_tail_when_feature_is
             'queueItem': {
                 'repo_path': str(repo),
                 'branch': 'feature/agentrunner/operator-status-artifact',
-                'base': 'master',
+                'base': 'main',
             },
         },
     })
@@ -457,7 +457,7 @@ def test_live_repo_on_base_can_outrank_stale_blocked_merger_tail_when_feature_is
     assert artifact['closure']['handoffSafe'] is True, artifact
     live_repo = next((src for src in artifact['reconciliation']['sources'] if src.get('name') == 'live_repo'), None)
     assert live_repo is not None and live_repo['present'] is True, artifact
-    assert live_repo['details']['branch'] == 'master', artifact
+    assert live_repo['details']['branch'] == 'main', artifact
     assert live_repo['details']['branchIsBase'] is True, artifact
     assert live_repo['details']['expectedBranchIsAncestorOfBase'] is True, artifact
     assert artifact['reconciliation']['reasons'][0]['code'] == 'live_repo_clean_overrides_stale_blocked_artifact', artifact

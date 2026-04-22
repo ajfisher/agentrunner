@@ -295,7 +295,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument('--project', required=True)
     ap.add_argument('--initiative-id', required=True)
     ap.add_argument('--branch', required=True)
-    ap.add_argument('--base', required=True)
+    ap.add_argument('--base', default='main', help='Base branch for the initiative (default: main)')
     ap.add_argument('--repo-path')
     ap.add_argument('--state-dir')
     ap.add_argument('--manager-brief-path', help='Path to a brief JSON file to copy into the initiative brief artifact')

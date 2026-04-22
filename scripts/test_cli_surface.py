@@ -35,7 +35,7 @@ def init_status_repo(repo: Path, *, branch: str) -> None:
     (repo / "README.md").write_text("ok\n", encoding="utf-8")
     subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture_output=True, text=True)
-    subprocess.run(["git", "branch", "master"], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "branch", "main"], cwd=repo, check=True, capture_output=True, text=True)
 
 
 def test_routed_status_queue_and_initiatives_use_disposable_operator_artifact(tmp_path: Path) -> None:
@@ -152,8 +152,6 @@ def test_routed_brief_enqueues_valid_initiative_against_disposable_state(tmp_pat
         "demo-cli-surface",
         "--branch",
         "feature/agentrunner/real-cli-surface",
-        "--base",
-        "master",
         "--repo-path",
         str(repo_path),
         "--state-dir",
@@ -181,6 +179,7 @@ def test_routed_brief_enqueues_valid_initiative_against_disposable_state(tmp_pat
     assert brief["initiativeId"] == "demo-cli-surface"
     assert brief["project"] == "demo"
     assert brief["repoPath"] == str(repo_path)
+    assert brief["baseBranch"] == "main"
 
     queue_events = (state_dir / "queue_events.ndjson").read_text(encoding="utf-8")
     assert "demo-cli-surface-manager" in queue_events
@@ -200,8 +199,6 @@ def test_routed_brief_failure_path_stays_operator_readable(tmp_path: Path) -> No
         "demo-cli-surface",
         "--branch",
         "feature/agentrunner/real-cli-surface",
-        "--base",
-        "master",
         "--repo-path",
         str(repo_path),
         "--state-dir",
@@ -220,7 +217,7 @@ def test_status_rebuild_recovers_stale_blocked_merger_tail_when_repo_is_already_
     repo_path = tmp_path / "repo"
     state_dir = tmp_path / "runtime"
     init_status_repo(repo_path, branch="feature/agentrunner/state-reconciliation-weighting")
-    subprocess.run(["git", "checkout", "master"], cwd=repo_path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "checkout", "main"], cwd=repo_path, check=True, capture_output=True, text=True)
     subprocess.run(["git", "merge", "--ff-only", "feature/agentrunner/state-reconciliation-weighting"], cwd=repo_path, check=True, capture_output=True, text=True)
 
     write_json(
@@ -238,7 +235,7 @@ def test_status_rebuild_recovers_stale_blocked_merger_tail_when_repo_is_already_
                 "queueItem": {
                     "repo_path": str(repo_path),
                     "branch": "feature/agentrunner/state-reconciliation-weighting",
-                    "base": "master",
+                    "base": "main",
                 },
             },
         },
@@ -353,7 +350,7 @@ def test_status_rebuild_keeps_repo_conflict_blocked_instead_of_auto_cleaning(tmp
                 "queueItem": {
                     "repo_path": str(repo_path),
                     "branch": "feature/agentrunner/state-reconciliation-weighting",
-                    "base": "master",
+                    "base": "main",
                 },
             },
         },

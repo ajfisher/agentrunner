@@ -51,14 +51,14 @@ def seed_runtime_truth(state_dir: Path) -> None:
                 'project': 'agentrunner',
                 'role': 'developer',
                 'branch': 'feature/agentrunner/operator-mqtt-broadcast',
-                'base': 'master',
+                'base': 'main',
                 'goal': 'Publish canonical operator snapshot updates.',
                 'initiative': {
                     'initiativeId': 'agentrunner-operator-mqtt-broadcast',
                     'phase': 'implementation',
                     'subtaskId': 'operator-mqtt-publisher-seam',
                     'branch': 'feature/agentrunner/operator-mqtt-broadcast',
-                    'base': 'master',
+                    'base': 'main',
                 },
             },
         },
@@ -71,7 +71,7 @@ def seed_runtime_truth(state_dir: Path) -> None:
             'phase': 'implementation',
             'currentSubtaskId': 'operator-mqtt-publisher-seam',
             'branch': 'feature/agentrunner/operator-mqtt-broadcast',
-            'base': 'master',
+            'base': 'main',
         },
     })
     write_json(state_dir / 'queue.json', [
