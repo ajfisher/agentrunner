@@ -37,7 +37,7 @@ def run_case(repo_path: Path, *, state_dir: Path, initiative_id: str, blocker: d
         'completedSubtasks': ['mechanics-passback-routing'],
         'pendingSubtasks': [],
         'branch': 'feature/agentrunner/merger-passback-remediation',
-        'base': 'master',
+        'base': 'main',
         'remediation': {
             'attempts': [
                 {
@@ -85,7 +85,7 @@ def run_case(repo_path: Path, *, state_dir: Path, initiative_id: str, blocker: d
                 'role': 'merger',
                 'repo_path': str(repo_path),
                 'branch': 'feature/agentrunner/merger-passback-remediation',
-                'base': 'master',
+                'base': 'main',
                 'goal': 'Attempt closure merge retry.',
                 'checks': ['git status --short'],
                 'contextFiles': ['agentrunner/scripts/initiative_coordinator.py'],
@@ -93,7 +93,7 @@ def run_case(repo_path: Path, *, state_dir: Path, initiative_id: str, blocker: d
                     'initiativeId': initiative_id,
                     'phase': 'closure-merger',
                     'branch': 'feature/agentrunner/merger-passback-remediation',
-                    'base': 'master',
+                    'base': 'main',
                 },
             },
             'resultPath': str(result_path),

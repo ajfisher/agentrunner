@@ -45,7 +45,7 @@ def main() -> int:
             'completedSubtasks': ['mechanics-passback-routing'],
             'pendingSubtasks': [],
             'branch': 'feature/agentrunner/merger-passback-remediation',
-            'base': 'master',
+            'base': 'main',
             'writtenAt': '2026-04-20T06:59:00+10:00',
         })
         write_json(result_path, {
@@ -56,17 +56,17 @@ def main() -> int:
             'commit': 'abc1234',
             'writtenAt': '2026-04-20T07:04:00+10:00',
             'checks': [
-                {'name': 'git diff --stat master...feature/agentrunner/merger-passback-remediation', 'status': 'ok'},
-                {'name': 'git merge-base --is-ancestor master feature/agentrunner/merger-passback-remediation', 'status': 'blocked'},
+                {'name': 'git diff --stat main...feature/agentrunner/merger-passback-remediation', 'status': 'ok'},
+                {'name': 'git merge-base --is-ancestor main feature/agentrunner/merger-passback-remediation', 'status': 'blocked'},
             ],
             'mergeBlocker': {
                 'classification': 'repairable',
                 'kind': 'non_fast_forward',
-                'detail': 'Feature branch diverged from master and needs a developer remediation pass.',
+                'detail': 'Feature branch diverged from main and needs a developer remediation pass.',
                 'passback': {
                     'targetRole': 'developer',
                     'action': 'rebase',
-                    'reason': 'Rebase the branch onto master, rerun checks, then return through review and merge retry.',
+                    'reason': 'Rebase the branch onto main, rerun checks, then return through review and merge retry.',
                     'requiresReReview': True,
                     'requiresMergeRetry': True,
                 },
@@ -90,18 +90,18 @@ def main() -> int:
                     'role': 'merger',
                     'repo_path': str(repo_path),
                     'branch': 'feature/agentrunner/merger-passback-remediation',
-                    'base': 'master',
+                    'base': 'main',
                     'goal': 'Attempt ff-only merge for initiative closure.',
                     'checks': [
-                        'git diff --stat master...feature/agentrunner/merger-passback-remediation',
-                        'git merge-base --is-ancestor master feature/agentrunner/merger-passback-remediation',
+                        'git diff --stat main...feature/agentrunner/merger-passback-remediation',
+                        'git merge-base --is-ancestor main feature/agentrunner/merger-passback-remediation',
                     ],
                     'contextFiles': ['agentrunner/scripts/invoker.py', 'agentrunner/scripts/initiative_coordinator.py'],
                     'initiative': {
                         'initiativeId': initiative_id,
                         'phase': 'closure-merger',
                         'branch': 'feature/agentrunner/merger-passback-remediation',
-                        'base': 'master',
+                        'base': 'main',
                     },
                 },
                 'resultPath': str(result_path),

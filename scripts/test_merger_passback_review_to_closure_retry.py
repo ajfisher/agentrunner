@@ -47,7 +47,7 @@ def main() -> int:
             'completedSubtasks': [],
             'pendingSubtasks': ['merger-remediation-1'],
             'branch': 'feature/agentrunner/merger-passback-remediation',
-            'base': 'master',
+            'base': 'main',
             'remediation': {
                 'attempts': [
                     {
@@ -58,17 +58,17 @@ def main() -> int:
                         'sourceResultPath': str(state_dir / 'results' / f'{initiative_id}-merger.json'),
                         'requestedAt': '2026-04-20T07:05:00+10:00',
                         'action': 'rebase',
-                        'reason': 'Rebase the branch onto master, rerun checks, then return through review and merge retry.',
+                        'reason': 'Rebase the branch onto main, rerun checks, then return through review and merge retry.',
                         'requiresReReview': True,
                         'requiresMergeRetry': True,
                         'mergeBlocker': {
                             'classification': 'repairable',
                             'kind': 'non_fast_forward',
-                            'detail': 'Feature branch diverged from master and needs a developer remediation pass.',
+                            'detail': 'Feature branch diverged from main and needs a developer remediation pass.',
                             'passback': {
                                 'targetRole': 'developer',
                                 'action': 'rebase',
-                                'reason': 'Rebase the branch onto master, rerun checks, then return through review and merge retry.',
+                                'reason': 'Rebase the branch onto main, rerun checks, then return through review and merge retry.',
                                 'requiresReReview': True,
                                 'requiresMergeRetry': True,
                             },
@@ -114,7 +114,7 @@ def main() -> int:
                     'role': 'reviewer',
                     'repo_path': str(repo_path),
                     'branch': 'feature/agentrunner/merger-passback-remediation',
-                    'base': 'master',
+                    'base': 'main',
                     'goal': 'Review merger remediation subtask and approve if ready.',
                     'checks': [
                         'python3 -m py_compile agentrunner/scripts/invoker.py agentrunner/scripts/initiative_coordinator.py',
@@ -126,7 +126,7 @@ def main() -> int:
                         'managerBriefPath': str(state_dir / 'initiatives' / initiative_id / 'brief.json'),
                         'architectPlanPath': str(plan_path),
                         'branch': 'feature/agentrunner/merger-passback-remediation',
-                        'base': 'master',
+                        'base': 'main',
                     },
                 },
                 'resultPath': str(reviewer_result_path),

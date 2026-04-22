@@ -43,7 +43,7 @@ def main() -> int:
             'completedSubtasks': ['watcher-handoff-adoption'],
             'pendingSubtasks': [],
             'branch': 'feature/agentrunner/closure-handoff-state-semantics',
-            'base': 'master',
+            'base': 'main',
             'writtenAt': '2026-04-21T01:58:00+00:00',
         })
         write_json(decision_path, {
@@ -70,12 +70,12 @@ def main() -> int:
                     'role': 'manager',
                     'repo_path': str(repo_path),
                     'branch': 'feature/agentrunner/closure-handoff-state-semantics',
-                    'base': 'master',
+                    'base': 'main',
                     'initiative': {
                         'initiativeId': initiative_id,
                         'phase': 'review-manager',
                         'branch': 'feature/agentrunner/closure-handoff-state-semantics',
-                        'base': 'master',
+                        'base': 'main',
                     },
                 },
                 'resultPath': str(state_dir / 'results' / f'{initiative_id}-manager-review.json'),

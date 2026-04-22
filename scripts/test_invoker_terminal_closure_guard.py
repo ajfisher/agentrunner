@@ -44,7 +44,7 @@ def main() -> int:
                 'createdAt': '2026-04-19T06:20:00+00:00',
                 'repo_path': str(repo_path),
                 'branch': 'feature/agentrunner/tail-case-initiative-cleanup',
-                'base': 'master',
+                'base': 'main',
                 'goal': 'Stale follow-up that should be scrubbed once closure is terminal.',
                 'checks': [],
                 'constraints': {},
@@ -53,7 +53,7 @@ def main() -> int:
                     'initiativeId': initiative_id,
                     'subtaskId': 'implement-terminal-closure-guard',
                     'branch': 'feature/agentrunner/tail-case-initiative-cleanup',
-                    'base': 'master',
+                    'base': 'main',
                 },
             }
         ])
@@ -67,7 +67,7 @@ def main() -> int:
             'completedSubtasks': ['implement-terminal-closure-guard'],
             'pendingSubtasks': [],
             'branch': 'feature/agentrunner/tail-case-initiative-cleanup',
-            'base': 'master',
+            'base': 'main',
             'writtenAt': '2026-04-19T06:19:00+00:00',
         })
         write_json(reviewer_result_path, {
@@ -93,7 +93,7 @@ def main() -> int:
             'project': 'agentrunner',
             'repoPath': str(repo_path),
             'branch': 'feature/agentrunner/tail-case-initiative-cleanup',
-            'base': 'master',
+            'base': 'main',
             'goal': 'This developer follow-up must be ignored because the initiative is already completed.',
             'checks': [],
             'findings': [
@@ -118,14 +118,14 @@ def main() -> int:
                     'role': 'reviewer',
                     'repo_path': str(repo_path),
                     'branch': 'feature/agentrunner/tail-case-initiative-cleanup',
-                    'base': 'master',
+                    'base': 'main',
                     'goal': 'Late reviewer completion.',
                     'checks': [],
                     'initiative': {
                         'initiativeId': initiative_id,
                         'subtaskId': 'implement-terminal-closure-guard',
                         'branch': 'feature/agentrunner/tail-case-initiative-cleanup',
-                        'base': 'master',
+                        'base': 'main',
                     },
                 },
                 'runId': 'run-late-reviewer',

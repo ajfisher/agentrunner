@@ -63,14 +63,14 @@ def main() -> int:
                     'role': 'developer',
                     'repo_path': str(repo_path),
                     'branch': 'feature/agentrunner/tail-case-initiative-cleanup',
-                    'base': 'master',
+                    'base': 'main',
                     'goal': 'Stray follow-up after merger success.',
                     'checks': ['python3 -m py_compile agentrunner/scripts/initiative_coordinator.py agentrunner/scripts/invoker.py'],
                     'initiative': {
                         'initiativeId': initiative_id,
                         'subtaskId': 'audit-terminal-success-transition',
                         'branch': 'feature/agentrunner/tail-case-initiative-cleanup',
-                        'base': 'master',
+                        'base': 'main',
                     },
                 },
                 'resultPath': str(result_path),
@@ -90,7 +90,7 @@ def main() -> int:
             'completedSubtasks': ['audit-terminal-success-transition'],
             'pendingSubtasks': [],
             'branch': 'feature/agentrunner/tail-case-initiative-cleanup',
-            'base': 'master',
+            'base': 'main',
             'writtenAt': '2026-04-19T00:00:00+00:00',
         })
         write_json(result_path, {
