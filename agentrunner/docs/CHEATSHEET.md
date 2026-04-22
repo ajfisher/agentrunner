@@ -256,6 +256,42 @@ python3 agentrunner/scripts/enqueue_initiative.py \
 Use this for:
 - starting new autonomous work the right way
 - avoiding fake `queue.json` hacks
+- verifying the canonical `main` base-branch contract on a disposable local proof path
+
+### Bounded local migration proof (`main` branch contract)
+
+Use a scratch state dir so you can prove the operator workflow end-to-end without touching a live project runtime:
+
+```bash
+scratch=$(mktemp -d)
+mkdir -p "$scratch/state"
+cat > "$scratch/brief.json" <<'JSON'
+{
+  "title": "Main branch normalization migration proof",
+  "objective": "Prove the local operator workflow uses main as the canonical base branch.",
+  "desiredOutcomes": ["Initiative enqueued with base main"],
+  "definitionOfDone": ["status, queue, and initiatives agree on base=main"]
+}
+JSON
+
+python3 -m agentrunner brief \
+  --project main-proof \
+  --repo-path /home/openclaw/projects/agentrunner \
+  --state-dir "$scratch/state" \
+  --initiative-id migration-proof-main \
+  --branch feature/agentrunner/migration-proof-main \
+  --base main \
+  --manager-brief-path "$scratch/brief.json"
+
+python3 -m agentrunner status --state-dir "$scratch/state" --rebuild-missing --write-rebuild
+python3 -m agentrunner queue --state-dir "$scratch/state" --rebuild-missing --write-rebuild
+python3 -m agentrunner initiatives --state-dir "$scratch/state" --rebuild-missing --write-rebuild
+```
+
+What to verify:
+- the enqueue summary reports `"base": "main"`
+- `status`, `queue`, and `initiatives` all point at the same initiative/branch with `base=main`
+- the scratch proof does not require editing `queue.json` or using any legacy `master` assumptions
 
 ---
 

@@ -1,5 +1,7 @@
 # Merger Proof Success
 
+> Historical proof note: this captures a successful ff-only Merger rerun from the earlier `master`-based branch contract. The branch names and command strings below are preserved as recorded evidence from that run, not as current operator guidance. For live work, use `main` as the steady-state base branch.
+
 This note captures the corrected ff-only Merger proof rerun against `picv_spike`.
 
 ## Queue item

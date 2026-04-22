@@ -1,5 +1,7 @@
 # Merger Proof Notes
 
+> Historical proof note: this page explains lessons learned from the original `master`-era merger proofs. The remaining `master` wording is preserved because it refers to what happened in that earlier run; it should not be read as the live base-branch contract.
+
 ## First merger proof: key failure mode
 The first ff-only merger proof against `picv_spike` exposed a sequencing bug:
 
@@ -22,7 +24,7 @@ It is the real side-effecting merge action when run on the target branch.
 ## Practical queue-item guidance
 Prefer queue items that include:
 - `branch`
-- `base`
+- `base` (`main` for current/live work; preserved `master` only in historical proof payloads)
 - `constraints.mergePolicy`
 - `constraints.approvedByReviewer`
 - optional approval source reference (e.g. prior reviewer queue item id / result path)

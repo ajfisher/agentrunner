@@ -344,3 +344,14 @@ Lightweight proof / operator test recipe:
 2. Run `python3 -m agentrunner brief` once with a valid brief and confirm the summary reports `status: "ok"` plus `<initiativeId>-manager` as the kickoff item.
 3. Run the same command again with the same `initiativeId` and confirm the summary reports `status: "noop"` with an “already active/pending/exists” style message.
 4. Optionally run once with `--poll-after-enqueue` to confirm the helper also reports the reliability poll summary without requiring any direct `queue.json` edits.
+
+Bounded local migration proof for the `main` branch contract:
+1. Create a disposable state dir, for example `scratch=$(mktemp -d)` then `mkdir -p "$scratch/state"`.
+2. Prepare a tiny manager brief JSON file in that scratch dir.
+3. Enqueue against the real repo but the scratch state dir using `python3 -m agentrunner brief --project main-proof --repo-path /home/openclaw/projects/agentrunner --state-dir "$scratch/state" --initiative-id migration-proof-main --branch feature/agentrunner/migration-proof-main --base main --manager-brief-path "$scratch/brief.json"`.
+4. Confirm the returned summary includes `"base": "main"`.
+5. Render the operator surfaces against the same scratch state dir:
+   - `python3 -m agentrunner status --state-dir "$scratch/state" --rebuild-missing --write-rebuild`
+   - `python3 -m agentrunner queue --state-dir "$scratch/state" --rebuild-missing --write-rebuild`
+   - `python3 -m agentrunner initiatives --state-dir "$scratch/state" --rebuild-missing --write-rebuild`
+6. Verify all three surfaces show the same initiative branch and `base=main`, proving enqueue + current-status + merge-oriented operator context no longer assume `master` as the steady-state base branch.

@@ -1,10 +1,12 @@
 # First Initiative-Bundle Run Notes
 
+> Historical proof note: this document records the first live initiative-bundle run before the repo standardized on `main` as the steady-state base branch. Keep the `master` wording here as evidence from that earlier run, not as current operator guidance.
+
 Initiative: `agentrunner-status-helper`
 
 ## Outcome
 - End-to-end initiative run completed and merged.
-- Final merge commit: `3558818` (feature branch fast-forwarded into `master`).
+- Final merge commit: `3558818` (feature branch fast-forwarded into `master` during the earlier pre-migration run).
 
 ## What worked
 - Manager brief artifact generation (`brief.json`)
@@ -31,3 +33,8 @@ Initiative: `agentrunner-status-helper`
 ## Next
 - Add reliability polling/heartbeat for active project state dirs.
 - Run a second initiative bundle confidence test with minimal intervention.
+
+## Migration note for current operators
+- This historical run merged into `master` because it predated the repo-wide base-branch normalization.
+- Current operator docs/examples should use `main` for new initiative kickoff, status review, and merge-oriented workflow checks.
+- For a bounded modern proof, use the scratch-state recipe in `README.md` / `agentrunner/docs/CHEATSHEET.md`; it exercises `brief`, `status`, `queue`, and `initiatives` end-to-end with `--base main`.

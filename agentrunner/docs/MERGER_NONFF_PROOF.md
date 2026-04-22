@@ -1,5 +1,7 @@
 # Merger Non-FF Proof
 
+> Historical proof note: this captures a blocked ff-only Merger proof from the earlier `master`-based branch contract. The `master` references below are intentionally preserved as historical evidence from that run, not as current operator guidance. For live work, use `main` as the steady-state base branch.
+
 This note captures the constrained non-fast-forward Merger proof against `picv_spike`.
 
 ## Queue item
