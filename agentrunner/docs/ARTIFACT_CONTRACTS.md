@@ -154,16 +154,17 @@ Optional but recommended fields:
 - `mergeBlocker.stopConditions` — required for ambiguous terminal blockers in MVP
 
 #### MVP repairable blocker kinds
-Only the following repairable blocker class is in-scope for MVP passback:
+The following repairable blocker kinds are in-scope for MVP passback:
 - `non_fast_forward` — the source branch is no longer fast-forward mergeable onto the target and needs a Developer passback/rebase before re-review + merge retry
+- `target_branch_missing` — the requested target branch is missing locally during branch-normalization, so mechanics should issue a bounded Developer passback to create or normalize the local base branch tip before merger checks are retried
 
 Mechanics keeps this MVP repairable taxonomy in one shared code path so result validation and closure-remediation routing stay aligned.
 
 For `classification=repairable`, emit:
 - `mergeBlocker.passback.targetRole` — usually `developer`
-- `mergeBlocker.passback.action` — recommended next action such as `rebase`
+- `mergeBlocker.passback.action` — recommended next action such as `rebase`; use `normalize-base-branch` for the bounded `target_branch_missing` repair path
 - `mergeBlocker.passback.reason` — concise reason for the passback
-- `mergeBlocker.passback.requiresReReview` — boolean
+- `mergeBlocker.passback.requiresReReview` — boolean; typically `false` for the narrow `target_branch_missing` normalization flow and `true` for `non_fast_forward` rebase/review loops
 - `mergeBlocker.passback.requiresMergeRetry` — boolean
 
 #### MVP terminal blocker kinds
