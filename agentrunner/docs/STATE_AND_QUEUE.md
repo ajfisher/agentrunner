@@ -33,7 +33,7 @@ Initiative-local persistence location:
 - persisted GitHub linkage and sync health live under `initiatives/<initiativeId>/state.json` in a compact `githubMirror` block
 - this is initiative-local on purpose: issue/PR linkage belongs to the initiative timeline, not the global queue authority
 - Phase 1 expected persisted fields are:
-  - `issue` — optional linked issue summary (`number`, `id`, `url`, `state`)
+  - `issue` — optional linked issue summary (`number`, `handle`, `id`, `url`, `state`)
   - `pullRequest` — optional linked PR summary (`number`, `id`, `url`, `state`, `headRef`, `baseRef`)
   - `lastSyncAt` — last successful mirror timestamp
   - `degradedSync` — optional degradation record when mirror writes/reads fail non-fatally

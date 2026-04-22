@@ -219,7 +219,7 @@ Recommended `githubMirror` shape:
 - `config` — optional normalized snapshot of the resolved project-level GitHub config used for this initiative
   - recommended fields: `enabled`, `owner`, `repo`, `baseUrl`
 - `issue` — optional linked issue object
-  - recommended fields: `number`, `id`, `url`, `state`
+  - recommended fields: `number`, `handle`, `id`, `url`, `state`
 - `pullRequest` — optional linked PR object
   - recommended fields: `number`, `id`, `url`, `state`, `headRef`, `baseRef`
 - `lastSyncAt` — ISO-8601 timestamp for the last successful mirror sync

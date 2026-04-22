@@ -10,10 +10,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 try:
+    from .github_backing import sync_manager_kickoff_issue
     from .initiative_status import build_status_message_event, ensure_status_message_state, resolve_status_message_operation
     from .initiative_status_discord import apply_discord_status_message
     from .merger_blockers import merger_result_uses_mvp_repairable_passback
 except ImportError:  # pragma: no cover - script-mode fallback
+    from github_backing import sync_manager_kickoff_issue
     from initiative_status import build_status_message_event, ensure_status_message_state, resolve_status_message_operation
     from initiative_status_discord import apply_discord_status_message
     from merger_blockers import merger_result_uses_mvp_repairable_passback
@@ -658,6 +660,10 @@ def maybe_advance(state_dir: str) -> bool:
             brief_path = Path(paths['managerBriefPath'])
             if not brief_path.exists():
                 return False
+            repo_path = queue_item.get('repo_path')
+            if isinstance(repo_path, str) and repo_path.strip():
+                sync_manager_kickoff_issue(repo_path=repo_path, initiative_state_path=initiative_state_path)
+                initiative_state = load_json(initiative_state_path, initiative_state)
             enqueue_architect_item(state_dir, project=state.get('project'), queue_item=queue_item, initiative_state=initiative_state)
             save_json(initiative_state_path, initiative_state)
             state['initiative'] = {'initiativeId': initiative['initiativeId'], 'phase': initiative_state.get('phase'), 'statePath': str(initiative_state_path)}
