@@ -24,7 +24,7 @@ def base_initiative_state() -> dict:
         'phase': 'execution',
         'currentSubtaskId': 'discord-adapter',
         'branch': 'feature/agentrunner/status-message-adapters',
-        'base': 'master',
+        'base': 'main',
     }
     ensure_status_message_state(state)
     return state

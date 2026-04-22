@@ -24,7 +24,7 @@ def run_case(*, state_dir: Path, repo_path: Path, brief_path: Path, initiative_i
         '--project', 'agentrunner',
         '--initiative-id', initiative_id,
         '--branch', 'feature/agentrunner/enqueue-cli',
-        '--base', 'master',
+        '--base', 'main',
         '--repo-path', str(repo_path),
         '--state-dir', str(state_dir),
         '--manager-brief-path', str(brief_path),
@@ -94,7 +94,7 @@ def main() -> int:
                 'initiativeId': 'queued-initiative',
                 'phase': 'design-manager',
                 'branch': 'feature/agentrunner/enqueue-cli',
-                'base': 'master',
+                'base': 'main',
             },
         }
         write_json(pending_state_dir / 'queue.json', [pending_item])

@@ -28,7 +28,7 @@ def assert_conflicting_enqueue_blocked(*, repo_path: Path, state_dir: Path, init
         '--project', 'agentrunner',
         '--initiative-id', initiative_id,
         '--branch', 'feature/agentrunner/enqueue-cli',
-        '--base', 'master',
+        '--base', 'main',
         '--repo-path', str(repo_path),
         '--state-dir', str(state_dir),
         '--manager-brief-path', str(brief_path),
@@ -59,8 +59,8 @@ def assert_clean_tail_enqueue_allowed(*, repo_path: Path, state_dir: Path, brief
     (runtime_repo / 'README.md').write_text('ok\n')
     subprocess.run(['git', 'add', 'README.md'], cwd=runtime_repo, check=True)
     subprocess.run(['git', 'commit', '-m', 'initial'], cwd=runtime_repo, check=True, capture_output=True, text=True)
-    subprocess.run(['git', 'branch', 'master'], cwd=runtime_repo, check=True, capture_output=True, text=True)
-    subprocess.run(['git', 'checkout', 'master'], cwd=runtime_repo, check=True, capture_output=True, text=True)
+    subprocess.run(['git', 'branch', 'main'], cwd=runtime_repo, check=True, capture_output=True, text=True)
+    subprocess.run(['git', 'checkout', 'main'], cwd=runtime_repo, check=True, capture_output=True, text=True)
     subprocess.run(['git', 'merge', '--ff-only', 'feature/agentrunner/clear-stale-initiative-pointer'], cwd=runtime_repo, check=True, capture_output=True, text=True)
 
     state = json.loads((state_dir / 'state.json').read_text())
@@ -79,7 +79,7 @@ def assert_clean_tail_enqueue_allowed(*, repo_path: Path, state_dir: Path, brief
         '--project', 'agentrunner',
         '--initiative-id', 'fresh-initiative',
         '--branch', 'feature/agentrunner/fresh-initiative',
-        '--base', 'master',
+        '--base', 'main',
         '--repo-path', str(repo_path),
         '--state-dir', str(state_dir),
         '--manager-brief-path', str(brief_path),
@@ -134,7 +134,7 @@ def main() -> int:
             'initiativeId': 'closed-initiative',
             'phase': 'closure-merger',
             'branch': 'feature/agentrunner/clear-stale-initiative-pointer',
-            'base': 'master',
+            'base': 'main',
         })
         write_json(state_path, {
             'project': 'agentrunner',
@@ -154,12 +154,12 @@ def main() -> int:
                     'role': 'merger',
                     'repo_path': str(repo_path),
                     'branch': 'feature/agentrunner/clear-stale-initiative-pointer',
-                    'base': 'master',
+                    'base': 'main',
                     'initiative': {
                         'initiativeId': 'closed-initiative',
                         'phase': 'closure-merger',
                         'branch': 'feature/agentrunner/clear-stale-initiative-pointer',
-                        'base': 'master',
+                        'base': 'main',
                     },
                 },
                 'resultPath': str(state_dir / 'results/closed-initiative-merger.json'),
@@ -180,7 +180,7 @@ def main() -> int:
             'initiativeId': 'replan-initiative',
             'phase': 'replan-architect',
             'branch': 'feature/agentrunner/replan-still-live',
-            'base': 'master',
+            'base': 'main',
         })
         write_json(state_path, {
             'project': 'agentrunner',
@@ -220,12 +220,12 @@ def main() -> int:
                     'role': 'merger',
                     'repo_path': str(repo_path),
                     'branch': 'feature/agentrunner/clear-stale-initiative-pointer',
-                    'base': 'master',
+                    'base': 'main',
                     'initiative': {
                         'initiativeId': 'closed-initiative',
                         'phase': 'closure-merger',
                         'branch': 'feature/agentrunner/clear-stale-initiative-pointer',
-                        'base': 'master',
+                        'base': 'main',
                     },
                 },
                 'resultPath': str(state_dir / 'results/closed-initiative-merger.json'),
