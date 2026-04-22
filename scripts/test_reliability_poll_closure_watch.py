@@ -29,7 +29,7 @@ def main() -> int:
             'initiativeId': 'closure-stuck',
             'phase': 'review-manager',
             'branch': 'feature/agentrunner/closure-handoff-state-semantics',
-            'base': 'master',
+            'base': 'main',
         })
         write_json(closure_active_dir / 'state.json', {
             'project': 'agentrunner',

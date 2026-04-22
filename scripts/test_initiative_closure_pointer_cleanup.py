@@ -53,12 +53,12 @@ def main() -> int:
                     'role': 'merger',
                     'repo_path': str(repo_path),
                     'branch': 'feature/agentrunner/clear-stale-initiative-pointer',
-                    'base': 'master',
+                    'base': 'main',
                     'initiative': {
                         'initiativeId': initiative_id,
                         'phase': 'closure-merger',
                         'branch': 'feature/agentrunner/clear-stale-initiative-pointer',
-                        'base': 'master',
+                        'base': 'main',
                     },
                 },
                 'resultPath': str(result_path),
@@ -78,7 +78,7 @@ def main() -> int:
             'completedSubtasks': ['enqueue-regression-success-path'],
             'pendingSubtasks': [],
             'branch': 'feature/agentrunner/clear-stale-initiative-pointer',
-            'base': 'master',
+            'base': 'main',
             'writtenAt': '2026-04-19T00:00:00+00:00',
         })
         write_json(result_path, {
@@ -122,7 +122,7 @@ def main() -> int:
             '--project', 'agentrunner',
             '--initiative-id', 'fresh-initiative',
             '--branch', 'feature/agentrunner/next-initiative',
-            '--base', 'master',
+            '--base', 'main',
             '--repo-path', str(repo_path),
             '--state-dir', str(state_dir),
             '--manager-brief-path', str(brief_path),
