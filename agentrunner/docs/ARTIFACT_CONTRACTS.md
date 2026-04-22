@@ -197,7 +197,7 @@ For ff-only blocks caused by divergence / non-fast-forward state, operator-facin
 ## Handoff artifact contract
 A handoff artifact is written to `HANDOFF_PATH` when a Reviewer requests follow-up Developer work.
 
-Canonical branch contract: use `main` as the steady-state `base` branch in new artifacts and examples. Any surviving `master` strings should only appear inside intentionally preserved historical proof notes.
+Canonical branch contract: use `main` as the steady-state `base` branch in new artifacts and examples. Any surviving `master` strings should only appear inside intentionally preserved historical proof notes or test/smoke fixtures that verify legacy-branch handling and preserved proof payloads.
 
 ## Review findings artifact
 When mechanics inserts a follow-up Developer item, it may also materialize a stable review-findings artifact under the project state directory, e.g.:

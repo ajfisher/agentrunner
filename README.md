@@ -280,7 +280,7 @@ Useful variants:
 
 Use the routed top-level CLI for operator-facing initiative kickoff; keep the direct script path as a compatibility/lower-level option.
 
-Canonical branch contract: `main` is the steady-state base branch for new work. Any remaining `master` references in the docs are preserved only where they are part of historical proof artifacts.
+Canonical branch contract: `main` is the steady-state base branch for new work. Any remaining `master` references are intentionally retained only in historical proof artifacts and in test/smoke fixtures that assert legacy-branch handling or preserved proof payloads.
 
 ```bash
 python3 -m agentrunner brief \
