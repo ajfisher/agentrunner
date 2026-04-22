@@ -30,10 +30,11 @@ Prefer queue items that include:
 - optional approval source reference (e.g. prior reviewer queue item id / result path)
 
 ## Regression coverage added after the first proof
-The merger-remediation pass now has focused regression scripts covering:
+The merger-remediation pass now has focused regression scripts covering the supported repairable taxonomy and its guardrails:
 - repairable `non_fast_forward` blockers routing a bounded Developer remediation item
+- repairable `target_branch_missing` blockers routing a bounded Developer base-branch normalization passback
 - a remediation fix returning through the normal Reviewer lane and re-queuing `closure-merger`
-- unsafe / ambiguous blockers halting remediation instead of silently looping another passback
+- unsafe / ambiguous blockers outside that repairable taxonomy halting remediation instead of silently looping another passback
 
 See:
 - `scripts/test_merger_passback_remediation_routing.py`

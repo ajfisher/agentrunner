@@ -57,7 +57,7 @@ def run_case(repo_path: Path, *, state_dir: Path, initiative_id: str, blocker: d
     write_json(result_path, {
         'status': 'blocked',
         'role': 'merger',
-        'summary': 'Merge is blocked and should halt closure remediation because the blocker is not a repairable non-fast-forward passback.',
+        'summary': 'Merge is blocked and should halt closure remediation because the blocker is outside the supported repairable taxonomy.',
         'merged': False,
         'commit': 'abc1234',
         'writtenAt': '2026-04-20T07:16:00+10:00',

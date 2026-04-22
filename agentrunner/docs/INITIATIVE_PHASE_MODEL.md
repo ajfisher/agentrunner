@@ -15,8 +15,8 @@ That execution loop is now reasonably proven for bounded work, including:
 - normal implementation/review/merge flow
 - follow-up Developer insertion after blocked review
 - ff-only merge success
-- blocked non-fast-forward merge
-- Developer passback/rebase recovery
+- blocked repairable merge blockers (`non_fast_forward`, `target_branch_missing`)
+- Developer passback / base-branch-normalization recovery
 - recovery loop closure
 - a bounded self-hosting real task on `agentrunner`
 

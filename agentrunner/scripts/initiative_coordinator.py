@@ -624,7 +624,7 @@ def maybe_advance(state_dir: str) -> bool:
             remediation['halted'] = {
                 'at': iso_now(),
                 'reason': 'unsafe_blocker_change',
-                'detail': 'Closure remediation stopped because the merger blocker is no longer an in-scope repairable non-fast-forward passback.',
+                'detail': 'Closure remediation stopped because the merger blocker is no longer in the supported repairable taxonomy (non_fast_forward, target_branch_missing).',
                 'mergeBlocker': blocker,
             }
             remediation['activeAttempt'] = None
