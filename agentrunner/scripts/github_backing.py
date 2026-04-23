@@ -270,8 +270,19 @@ LIFECYCLE_PR_COMMENT_EVENTS = {
     'merge_completed',
 }
 
+LIFECYCLE_SPARSE_COMMENT_EVENTS = {
+    'review_approved',
+    'review_blocked',
+    'remediation_queued',
+    'initiative_completed',
+    'initiative_blocked',
+}
+
 
 def resolve_lifecycle_comment_target(*, lifecycle_event: str, github_mirror: dict[str, Any]) -> dict[str, Any] | None:
+    if lifecycle_event not in LIFECYCLE_SPARSE_COMMENT_EVENTS:
+        return None
+
     issue = github_mirror.get('issue') if isinstance(github_mirror.get('issue'), dict) else None
     pull_request = github_mirror.get('pullRequest') if isinstance(github_mirror.get('pullRequest'), dict) else None
     has_pull_request = isinstance(pull_request, dict) and _normalize_number(pull_request.get('number')) is not None
@@ -302,6 +313,38 @@ def resolve_lifecycle_comment_target(*, lifecycle_event: str, github_mirror: dic
     return None
 
 
+def _first_finding_title(result: dict[str, Any]) -> str | None:
+    findings = result.get('findings') if isinstance(result.get('findings'), list) else []
+    for finding in findings:
+        if not isinstance(finding, dict):
+            continue
+        title = clip(finding.get('title'), 120)
+        if title:
+            detail = clip(finding.get('detail'), 120)
+            return f'{title}: {detail}' if detail else title
+    return None
+
+
+def _retry_reason(result: dict[str, Any], blocked_reason: str | None) -> str | None:
+    passback = result.get('mergeBlocker') if isinstance(result.get('mergeBlocker'), dict) else {}
+    passback = passback.get('passback') if isinstance(passback.get('passback'), dict) else {}
+    reason = clip(passback.get('reason'), 160)
+    if reason:
+        return reason
+    return clip(blocked_reason, 160)
+
+
+def _lifecycle_comment_heading(event: str) -> str:
+    headings = {
+        'review_approved': 'Review approved',
+        'review_blocked': 'Review blocked',
+        'remediation_queued': 'Remediation queued',
+        'initiative_completed': 'Initiative completed',
+        'initiative_blocked': 'Initiative blocked',
+    }
+    return headings.get(event, event.replace('_', ' ').strip().title() or 'Lifecycle update')
+
+
 def _build_lifecycle_comment_projection(*, lifecycle_event: str, initiative_state: dict[str, Any], summary: str | None = None, queue_item: dict[str, Any] | None = None, result: dict[str, Any] | None = None, blocked_reason: str | None = None) -> dict[str, Any]:
     queue_item = queue_item if isinstance(queue_item, dict) else {}
     result = result if isinstance(result, dict) else {}
@@ -315,28 +358,29 @@ def _build_lifecycle_comment_projection(*, lifecycle_event: str, initiative_stat
         'resultStatus': clip(result.get('status'), 32),
         'commit': clip(result.get('commit'), 16),
         'blockedReason': clip(blocked_reason, 240),
+        'topFinding': _first_finding_title(result),
+        'retryReason': _retry_reason(result, blocked_reason),
     }
 
 
 def _build_lifecycle_comment_body(payload: dict[str, Any]) -> str:
-    lines = [f"Lifecycle update: {payload.get('event') or 'status_update'}"]
+    lines = [f"{_lifecycle_comment_heading(str(payload.get('event') or 'status_update'))}."]
     summary = payload.get('summary')
     if summary:
-        lines += ['', str(summary)]
+        lines.append(f"- {summary}")
 
-    facts = [
+    fact_lines = [
+        _status_line('Top finding', payload.get('topFinding')),
+        _status_line('Retry reason', payload.get('retryReason')),
         _status_line('Phase', payload.get('phase')),
-        _status_line('Current subtask', payload.get('currentSubtaskId')),
+        _status_line('Subtask', payload.get('currentSubtaskId')),
         _status_line('Queue item', payload.get('queueItemId')),
         _status_line('Role', payload.get('role')),
         _status_line('Result', payload.get('resultStatus')),
         _status_line('Commit', payload.get('commit')),
-        _status_line('Blocked reason', payload.get('blockedReason')),
     ]
-    facts = [line for line in facts if line]
-    if facts:
-        lines += ['', 'Details:']
-        lines.extend(facts)
+    fact_lines = [line for line in fact_lines if line]
+    lines.extend(fact_lines[:4])
     return '\n'.join(lines).strip() + '\n'
 
 
