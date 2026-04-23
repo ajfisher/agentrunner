@@ -89,6 +89,19 @@ Routing contract:
 
 This keeps the top-level CLI canonical without duplicating mechanics logic in a second implementation.
 
+## GitHub mirror, in one breath
+
+When GitHub mirroring is enabled, treat GitHub as an operator-facing scorecard only.
+Local mechanics (`queue.json`, `queue_events.ndjson`, `ticks.ndjson`, result artifacts, initiative-local state) still own scheduling and completion truth.
+
+Compact routing rule for lifecycle notes:
+- initiative body refreshes always target the linked issue
+- sparse lifecycle comments use the linked PR for `review_approved`, `review_blocked`, `remediation_queued`, `merge_blocked`, and `merge_completed` when one exists
+- the other sparse lifecycle comment events use the linked issue
+- if the preferred target is missing, fall back to the issue first, then the PR
+
+That keeps the mirror readable for operators without letting GitHub steer execution.
+
 ## Operator status CLI
 
 Use the routed top-level CLI first for read-only operator views. The lower-level scripts remain supported as compatibility paths and implementation surfaces underneath the router.

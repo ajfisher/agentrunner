@@ -232,12 +232,16 @@ Recommended `githubMirror` shape:
   - recommended fields: `status`, `reason`, `summary`, `firstSeenAt`, `lastSeenAt`, `lastAttemptAt`
 
 Lifecycle note routing contract (Phase 2):
-- local initiative state remains authoritative
+- local initiative state remains authoritative; GitHub mirrors operator-facing progress only and must never become execution authority
 - initiative body refresh continues to target the linked issue
 - lifecycle note comments route deterministically from `lifecycle.event` + linked PR presence:
   - `review_approved`, `review_blocked`, `remediation_queued`, `merge_blocked`, `merge_completed` → linked PR when present
   - all other lifecycle events → linked issue
   - if the preferred target is missing, fallback to the linked issue, then linked PR if available
+- compact proof examples the operator can reason about:
+  - `initiative_blocked` uses the issue lane
+  - `review_blocked` / `merge_completed` use the PR lane when a PR is linked
+  - `merge_completed` falls back to the issue lane when no PR link exists yet
 - lifecycle comment failures should only set `degradedSync`; they must not block local queue/result progression or overwrite the authoritative local lifecycle projection
 
 Interpretation rules:

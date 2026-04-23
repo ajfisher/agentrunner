@@ -42,12 +42,16 @@ Initiative-local persistence location:
     - recommended fields: `status`, `reason`, `firstSeenAt`, `lastSeenAt`, `lastAttemptAt`, `summary`
 
 Lifecycle note routing contract:
-- local initiative state remains authoritative even when GitHub mirroring is enabled
+- local initiative state remains authoritative even when GitHub mirroring is enabled; GitHub is a scorecard, not execution authority
 - body/projection refreshes still target the linked issue
 - lifecycle note comments route deterministically from `lifecycle.event` plus whether a linked PR exists:
   - `review_approved`, `review_blocked`, `remediation_queued`, `merge_blocked`, `merge_completed` prefer the linked PR
   - all other lifecycle events prefer the linked issue
   - if the preferred target is absent, fallback to the linked issue first, then the linked PR when available
+- compact operator examples:
+  - `initiative_blocked` → comment on the linked issue
+  - `review_blocked` with a linked PR → comment on the linked PR
+  - `merge_completed` with no linked PR yet → fallback comment on the linked issue
 - if comment sync fails, persist `degradedSync` and continue local mechanics flow; failed comment sync is not queue/result authority
 
 Boundary rule:

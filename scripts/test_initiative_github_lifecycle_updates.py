@@ -376,6 +376,60 @@ def test_sync_lifecycle_issue_update_dedupes_repeated_pull_request_comment_event
 
 
 
+def test_sync_lifecycle_issue_update_routes_issue_and_pr_comment_lanes_end_to_end() -> None:
+    with tempfile.TemporaryDirectory(prefix='initiative-gh-lifecycle-comment-routing-') as tmp:
+        temp_root = Path(tmp)
+        repo_copy, env, fake_state = seed_repo_and_env(temp_root)
+
+        state_path = temp_root / 'state.json'
+        brief_path = temp_root / 'brief.json'
+        write_json(brief_path, {
+            'initiativeId': 'agentrunner-github-backed-workflow-phase1',
+            'title': 'GitHub-backed workflow phase 1',
+            'objective': 'Mirror lifecycle milestones compactly.',
+        })
+        write_json(state_path, {
+            'initiativeId': 'agentrunner-github-backed-workflow-phase1',
+            'phase': 'review-manager',
+            'currentSubtaskId': 'github-backed-workflow-3',
+            'managerBriefPath': str(brief_path),
+            'branch': 'feature/agentrunner/github-backed-workflow-phase1',
+            'base': 'main',
+            'githubMirror': {
+                'issue': {'number': 42, 'handle': 'acme/agentrunner#42'},
+                'pullRequest': {'number': 8, 'handle': 'acme/agentrunner#PR8'},
+            },
+        })
+
+        code = (
+            'from github_backing import sync_lifecycle_issue_update\n'
+            f'path = r"{state_path}"\n'
+            f'repo = r"{repo_copy}"\n'
+            'sync_lifecycle_issue_update(repo_path=repo, initiative_state_path=path, lifecycle_event="initiative_blocked", summary="Manager paused the initiative pending clarification.", queue_item={"id": "mgr-1", "role": "manager", "repo_path": repo}, result={"status": "blocked"}, blocked_reason="Need a tighter operator-facing routing note.")\n'
+            'sync_lifecycle_issue_update(repo_path=repo, initiative_state_path=path, lifecycle_event="review_blocked", summary="Reviewer found one bounded fix.", queue_item={"id": "review-1", "role": "reviewer", "repo_path": repo}, result={"status": "blocked", "findings": [{"title": "Tighten docs", "detail": "Explain which lane gets the lifecycle note."}]}, blocked_reason="Docs routing note missing.")\n'
+        )
+        proc = run_python(repo_copy, ['-c', code], env=env)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+
+        fake = load_json(fake_state)
+        issue_comment_calls = [call for call in fake['calls'] if call[:2] == ['api', 'repos/acme/agentrunner/issues/42/comments']]
+        pr_comment_calls = [call for call in fake['calls'] if call[:2] == ['api', 'repos/acme/agentrunner/issues/8/comments']]
+        assert len(issue_comment_calls) == 1
+        assert len(pr_comment_calls) == 1
+        assert fake['comment_post_attempts'] == 2
+        assert any('Manager paused the initiative pending clarification.' in (body or '') for body in fake['comment_bodies'])
+        assert any('Reviewer found one bounded fix.' in (body or '') for body in fake['comment_bodies'])
+
+        saved = load_json(state_path)
+        comment_sync = saved['githubMirror']['commentSync']
+        assert comment_sync['lastEvent'] == 'review_blocked'
+        assert comment_sync['lastTargetKind'] == 'pull_request'
+        assert comment_sync['lastTargetNumber'] == 8
+        assert saved['githubMirror']['lifecycle']['event'] == 'review_blocked'
+        assert 'degradedSync' not in saved['githubMirror']
+
+
+
 def test_sync_lifecycle_issue_update_records_comment_sync_degraded_details() -> None:
     with tempfile.TemporaryDirectory(prefix='initiative-gh-lifecycle-comment-degraded-') as tmp:
         temp_root = Path(tmp)
@@ -525,11 +579,12 @@ def main() -> int:
     test_sync_lifecycle_issue_update_throttles_duplicate_write_and_persists_projection()
     test_sync_lifecycle_issue_update_retries_comment_sync_after_failed_identical_update()
     test_sync_lifecycle_issue_update_dedupes_repeated_pull_request_comment_event()
+    test_sync_lifecycle_issue_update_routes_issue_and_pr_comment_lanes_end_to_end()
     test_sync_lifecycle_issue_update_records_comment_sync_degraded_details()
     test_sync_lifecycle_issue_update_creates_late_pull_request_on_closure_transition()
     test_merge_blocked_without_explicit_blocked_merger_result_does_not_create_pull_request()
     test_invoker_merge_blocked_records_degraded_sync_when_issue_refresh_fails()
-    print('ok: github-backed lifecycle refreshes stay compact, target late PR lifecycle notes correctly, dedupe repeated comments, retain degraded comment-sync details, create a late closure PR when needed, and keep blocked merge sync semantics safe')
+    print('ok: github-backed lifecycle refreshes stay compact, prove issue-vs-PR comment routing end to end, dedupe repeated comments, retain degraded comment-sync details, create a late closure PR when needed, and keep blocked merge sync semantics safe')
     return 0
 
 
