@@ -344,6 +344,28 @@ def _comment_sync_digest(payload: dict[str, Any]) -> str:
     return json.dumps(payload, sort_keys=True, ensure_ascii=False)
 
 
+def _lifecycle_comment_retry_pending(*, github_mirror: dict[str, Any], lifecycle_event: str, initiative_state: dict[str, Any], summary: str | None = None, queue_item: dict[str, Any] | None = None, result: dict[str, Any] | None = None, blocked_reason: str | None = None) -> bool:
+    target = resolve_lifecycle_comment_target(lifecycle_event=lifecycle_event, github_mirror=github_mirror)
+    if not target:
+        return False
+
+    comment_payload = _build_lifecycle_comment_projection(
+        lifecycle_event=lifecycle_event,
+        initiative_state=initiative_state,
+        summary=summary,
+        queue_item=queue_item,
+        result=result,
+        blocked_reason=blocked_reason,
+    )
+    digest = _comment_sync_digest(comment_payload)
+    comment_sync = github_mirror.get('commentSync') if isinstance(github_mirror.get('commentSync'), dict) else {}
+    return not (
+        comment_sync.get('lastDigest') == digest
+        and comment_sync.get('lastTargetKind') == target.get('kind')
+        and comment_sync.get('lastTargetNumber') == target.get('number')
+    )
+
+
 def _sync_lifecycle_comment(*, repo_path: str | Path, config: dict[str, Any], github_mirror: dict[str, Any], lifecycle_event: str, initiative_state: dict[str, Any], summary: str | None = None, queue_item: dict[str, Any] | None = None, result: dict[str, Any] | None = None, blocked_reason: str | None = None) -> dict[str, Any] | None:
     target = resolve_lifecycle_comment_target(lifecycle_event=lifecycle_event, github_mirror=github_mirror)
     if not target:
@@ -359,7 +381,15 @@ def _sync_lifecycle_comment(*, repo_path: str | Path, config: dict[str, Any], gi
     )
     digest = _comment_sync_digest(comment_payload)
     comment_sync = github_mirror.get('commentSync') if isinstance(github_mirror.get('commentSync'), dict) else {}
-    if comment_sync.get('lastDigest') == digest and comment_sync.get('lastTargetKind') == target.get('kind') and comment_sync.get('lastTargetNumber') == target.get('number'):
+    if not _lifecycle_comment_retry_pending(
+        github_mirror=github_mirror,
+        lifecycle_event=lifecycle_event,
+        initiative_state=initiative_state,
+        summary=summary,
+        queue_item=queue_item,
+        result=result,
+        blocked_reason=blocked_reason,
+    ):
         return comment_sync
 
     now = iso_now()
@@ -679,35 +709,45 @@ def sync_lifecycle_issue_update(*, repo_path: str | Path, initiative_state_path:
     )
     digest = _lifecycle_digest(lifecycle)
     current = github_mirror.get('lifecycle') if isinstance(github_mirror.get('lifecycle'), dict) else {}
-    if current.get('digest') == digest:
+    lifecycle_changed = current.get('digest') != digest
+    comment_retry_pending = _lifecycle_comment_retry_pending(
+        github_mirror=github_mirror,
+        lifecycle_event=lifecycle_event,
+        initiative_state=initiative_state,
+        summary=summary,
+        queue_item=queue_item,
+        result=result,
+        blocked_reason=blocked_reason,
+    )
+    if not lifecycle_changed and not comment_retry_pending:
         return github_mirror
 
-    lifecycle['digest'] = digest
-    github_mirror['lifecycle'] = lifecycle
-    initiative_state['githubMirror'] = github_mirror
-
-    try:
-        _run_gh(
-            repo_root,
-            config,
-            [
-                'issue', 'edit', str(issue['number']),
-                '--body', build_issue_body(initiative_id=initiative_id, brief=brief, initiative_state=initiative_state),
-            ],
-        )
-    except Exception as exc:
-        _record_degraded_sync(
-            github_mirror,
-            now=now,
-            reason='lifecycle_sync_failed',
-            summary=f'GitHub issue lifecycle refresh failed for {lifecycle_event}: {exc}',
-        )
+    if lifecycle_changed:
+        lifecycle['digest'] = digest
+        github_mirror['lifecycle'] = lifecycle
         initiative_state['githubMirror'] = github_mirror
-        save_json(state_path, initiative_state)
-        return github_mirror
 
-    github_mirror['lastSyncAt'] = now
-    _clear_degraded_sync(github_mirror)
+        try:
+            _run_gh(
+                repo_root,
+                config,
+                [
+                    'issue', 'edit', str(issue['number']),
+                    '--body', build_issue_body(initiative_id=initiative_id, brief=brief, initiative_state=initiative_state),
+                ],
+            )
+        except Exception as exc:
+            _record_degraded_sync(
+                github_mirror,
+                now=now,
+                reason='lifecycle_sync_failed',
+                summary=f'GitHub issue lifecycle refresh failed for {lifecycle_event}: {exc}',
+            )
+            initiative_state['githubMirror'] = github_mirror
+            save_json(state_path, initiative_state)
+            return github_mirror
+
+        github_mirror['lastSyncAt'] = now
 
     try:
         _sync_lifecycle_comment(
@@ -721,6 +761,8 @@ def sync_lifecycle_issue_update(*, repo_path: str | Path, initiative_state_path:
             result=result,
             blocked_reason=blocked_reason,
         )
+        _clear_degraded_sync(github_mirror)
+        github_mirror['lastSyncAt'] = iso_now()
     except Exception as exc:
         _record_degraded_sync(
             github_mirror,
