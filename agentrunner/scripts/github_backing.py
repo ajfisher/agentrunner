@@ -364,14 +364,17 @@ def _sync_lifecycle_comment(*, repo_path: str | Path, config: dict[str, Any], gi
 
     now = iso_now()
     body = _build_lifecycle_comment_body(comment_payload)
-    comment: dict[str, Any] = {
-        'lastAttemptAt': now,
-        'lastEvent': lifecycle_event,
-        'lastDigest': digest,
-        'lastTargetKind': target.get('kind'),
-        'lastTargetNumber': target.get('number'),
-        'lastTargetHandle': target.get('handle'),
-    }
+    comment: dict[str, Any] = dict(comment_sync)
+    comment.update(
+        {
+            'lastAttemptAt': now,
+            'lastEvent': lifecycle_event,
+            'lastAttemptDigest': digest,
+            'lastAttemptTargetKind': target.get('kind'),
+            'lastAttemptTargetNumber': target.get('number'),
+            'lastAttemptTargetHandle': target.get('handle'),
+        }
+    )
     github_mirror['commentSync'] = comment
 
     created = _run_gh(
@@ -388,6 +391,10 @@ def _sync_lifecycle_comment(*, repo_path: str | Path, config: dict[str, Any], gi
     )
 
     comment['lastSuccessAt'] = now
+    comment['lastDigest'] = digest
+    comment['lastTargetKind'] = target.get('kind')
+    comment['lastTargetNumber'] = target.get('number')
+    comment['lastTargetHandle'] = target.get('handle')
     if isinstance(created, dict):
         comment_id = created.get('id')
         if isinstance(comment_id, int):
