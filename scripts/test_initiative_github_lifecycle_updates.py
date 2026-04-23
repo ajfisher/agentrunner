@@ -327,6 +327,113 @@ def test_sync_lifecycle_issue_update_retries_comment_sync_after_failed_identical
 
 
 
+def test_sync_lifecycle_issue_update_dedupes_repeated_pull_request_comment_event() -> None:
+    with tempfile.TemporaryDirectory(prefix='initiative-gh-lifecycle-comment-dedupe-') as tmp:
+        temp_root = Path(tmp)
+        repo_copy, env, fake_state = seed_repo_and_env(temp_root)
+
+        state_path = temp_root / 'state.json'
+        brief_path = temp_root / 'brief.json'
+        write_json(brief_path, {
+            'initiativeId': 'agentrunner-github-backed-workflow-phase1',
+            'title': 'GitHub-backed workflow phase 1',
+            'objective': 'Mirror lifecycle milestones compactly.',
+        })
+        write_json(state_path, {
+            'initiativeId': 'agentrunner-github-backed-workflow-phase1',
+            'phase': 'closure-merger',
+            'currentSubtaskId': None,
+            'managerBriefPath': str(brief_path),
+            'branch': 'feature/agentrunner/github-backed-workflow-phase1',
+            'base': 'main',
+            'githubMirror': {
+                'issue': {'number': 42, 'handle': 'acme/agentrunner#42'},
+                'pullRequest': {'number': 8, 'handle': 'acme/agentrunner#PR8'},
+            },
+        })
+
+        code = (
+            'from github_backing import sync_lifecycle_issue_update\n'
+            f'path = r"{state_path}"\n'
+            f'repo = r"{repo_copy}"\n'
+            'kwargs = dict(repo_path=repo, initiative_state_path=path, lifecycle_event="merge_completed", summary="Merge landed.", queue_item={"id": "merge-1", "role": "merger", "repo_path": repo}, result={"status": "ok", "commit": "abc123", "merged": True})\n'
+            'sync_lifecycle_issue_update(**kwargs)\n'
+            'sync_lifecycle_issue_update(**kwargs)\n'
+        )
+        proc = run_python(repo_copy, ['-c', code], env=env)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+
+        fake = load_json(fake_state)
+        comment_calls = [call for call in fake['calls'] if call[:2] == ['api', 'repos/acme/agentrunner/issues/8/comments']]
+        assert len(comment_calls) == 1
+        assert fake['comment_post_attempts'] == 1
+
+        saved = load_json(state_path)
+        comment_sync = saved['githubMirror']['commentSync']
+        assert comment_sync['lastTargetKind'] == 'pull_request'
+        assert comment_sync['lastTargetNumber'] == 8
+        assert 'degradedSync' not in saved['githubMirror']
+
+
+
+def test_sync_lifecycle_issue_update_records_comment_sync_degraded_details() -> None:
+    with tempfile.TemporaryDirectory(prefix='initiative-gh-lifecycle-comment-degraded-') as tmp:
+        temp_root = Path(tmp)
+        repo_copy, env, fake_state = seed_repo_and_env(temp_root)
+        fake = load_json(fake_state)
+        fake['comment_post_failures_remaining'] = 1
+        fake['comment_post_fail_message'] = 'boom: comment denied'
+        write_json(fake_state, fake)
+
+        state_path = temp_root / 'state.json'
+        brief_path = temp_root / 'brief.json'
+        write_json(brief_path, {
+            'initiativeId': 'agentrunner-github-backed-workflow-phase1',
+            'title': 'GitHub-backed workflow phase 1',
+            'objective': 'Mirror lifecycle milestones compactly.',
+        })
+        write_json(state_path, {
+            'initiativeId': 'agentrunner-github-backed-workflow-phase1',
+            'phase': 'closure-merger',
+            'currentSubtaskId': None,
+            'managerBriefPath': str(brief_path),
+            'branch': 'feature/agentrunner/github-backed-workflow-phase1',
+            'base': 'main',
+            'githubMirror': {
+                'issue': {'number': 42, 'handle': 'acme/agentrunner#42'},
+                'pullRequest': {'number': 8, 'handle': 'acme/agentrunner#PR8'},
+            },
+        })
+
+        code = (
+            'from github_backing import sync_lifecycle_issue_update\n'
+            f'path = r"{state_path}"\n'
+            f'repo = r"{repo_copy}"\n'
+            'sync_lifecycle_issue_update(repo_path=repo, initiative_state_path=path, lifecycle_event="merge_completed", summary="Merge landed.", queue_item={"id": "merge-1", "role": "merger", "repo_path": repo}, result={"status": "ok", "commit": "abc123", "merged": True})\n'
+        )
+        proc = run_python(repo_copy, ['-c', code], env=env)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+
+        saved = load_json(state_path)
+        degraded = saved['githubMirror']['degradedSync']
+        assert degraded['reason'] == 'comment_sync_failed'
+        assert 'merge_completed' in degraded['summary']
+        assert 'boom: comment denied' in degraded['summary']
+        assert saved['githubMirror']['lifecycle']['event'] == 'merge_completed'
+        assert saved['githubMirror']['lastSyncAt']
+
+        details = degraded['details']
+        assert details['lifecycleEvent'] == 'merge_completed'
+        assert details['targetKind'] == 'pull_request'
+        assert details['targetNumber'] == 8
+        assert details['targetHandle'] == 'acme/agentrunner#PR8'
+        assert details['queueItemId'] == 'merge-1'
+        assert details['role'] == 'merger'
+        assert details['resultStatus'] == 'ok'
+        assert details['commit'] == 'abc123'
+
+
+
 def test_sync_lifecycle_issue_update_creates_late_pull_request_on_closure_transition() -> None:
     with tempfile.TemporaryDirectory(prefix='initiative-gh-lifecycle-pr-create-') as tmp:
         temp_root = Path(tmp)
@@ -417,10 +524,12 @@ def test_merge_blocked_without_explicit_blocked_merger_result_does_not_create_pu
 def main() -> int:
     test_sync_lifecycle_issue_update_throttles_duplicate_write_and_persists_projection()
     test_sync_lifecycle_issue_update_retries_comment_sync_after_failed_identical_update()
+    test_sync_lifecycle_issue_update_dedupes_repeated_pull_request_comment_event()
+    test_sync_lifecycle_issue_update_records_comment_sync_degraded_details()
     test_sync_lifecycle_issue_update_creates_late_pull_request_on_closure_transition()
     test_merge_blocked_without_explicit_blocked_merger_result_does_not_create_pull_request()
     test_invoker_merge_blocked_records_degraded_sync_when_issue_refresh_fails()
-    print('ok: github-backed lifecycle refreshes stay compact, retry failed lifecycle comments on identical updates, create a late closure PR when needed, and keep blocked merge sync semantics safe')
+    print('ok: github-backed lifecycle refreshes stay compact, target late PR lifecycle notes correctly, dedupe repeated comments, retain degraded comment-sync details, create a late closure PR when needed, and keep blocked merge sync semantics safe')
     return 0
 
 

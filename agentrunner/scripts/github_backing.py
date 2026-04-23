@@ -603,10 +603,17 @@ def reconcile_remote_issue(*, repo_path: str | Path, config: dict[str, Any], ini
     return issue
 
 
-def _record_degraded_sync(github_mirror: dict[str, Any], *, now: str, reason: str, summary: str) -> None:
+def _record_degraded_sync(
+    github_mirror: dict[str, Any],
+    *,
+    now: str,
+    reason: str,
+    summary: str,
+    details: dict[str, Any] | None = None,
+) -> None:
     degraded = github_mirror.get('degradedSync') if isinstance(github_mirror.get('degradedSync'), dict) else {}
     first_seen = degraded.get('firstSeenAt') if isinstance(degraded.get('firstSeenAt'), str) and degraded.get('firstSeenAt').strip() else now
-    github_mirror['degradedSync'] = {
+    next_record: dict[str, Any] = {
         'status': 'degraded',
         'reason': reason,
         'summary': clip(summary, 240),
@@ -614,6 +621,11 @@ def _record_degraded_sync(github_mirror: dict[str, Any], *, now: str, reason: st
         'lastSeenAt': now,
         'lastAttemptAt': now,
     }
+    if isinstance(details, dict):
+        filtered_details = {k: v for k, v in details.items() if v is not None}
+        if filtered_details:
+            next_record['details'] = filtered_details
+    github_mirror['degradedSync'] = next_record
 
 
 def _clear_degraded_sync(github_mirror: dict[str, Any]) -> None:
@@ -795,6 +807,7 @@ def sync_lifecycle_issue_update(*, repo_path: str | Path, initiative_state_path:
 
         github_mirror['lastSyncAt'] = now
 
+    comment_target = resolve_lifecycle_comment_target(lifecycle_event=lifecycle_event, github_mirror=github_mirror)
     try:
         _sync_lifecycle_comment(
             repo_path=repo_root,
@@ -815,6 +828,16 @@ def sync_lifecycle_issue_update(*, repo_path: str | Path, initiative_state_path:
             now=iso_now(),
             reason='comment_sync_failed',
             summary=f'GitHub lifecycle comment sync failed for {lifecycle_event}: {exc}',
+            details={
+                'lifecycleEvent': lifecycle_event,
+                'targetKind': comment_target.get('kind') if isinstance(comment_target, dict) else None,
+                'targetNumber': comment_target.get('number') if isinstance(comment_target, dict) else None,
+                'targetHandle': clip(comment_target.get('handle'), 160) if isinstance(comment_target, dict) else None,
+                'queueItemId': clip((queue_item or {}).get('id') or (queue_item or {}).get('queueItemId'), 96) if isinstance(queue_item, dict) else None,
+                'role': clip((queue_item or {}).get('role'), 48) if isinstance(queue_item, dict) else None,
+                'resultStatus': clip((result or {}).get('status'), 32) if isinstance(result, dict) else None,
+                'commit': clip((result or {}).get('commit'), 16) if isinstance(result, dict) else None,
+            },
         )
 
     initiative_state['githubMirror'] = github_mirror
