@@ -135,6 +135,14 @@ def build_pull_request_handle(config: dict[str, Any], number: object) -> str | N
     return None
 
 
+def _normalize_number(value: object) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
 def issue_marker(initiative_id: str) -> str:
     return f'Initiative ID: {initiative_id}'
 
@@ -252,6 +260,145 @@ def _should_sync_pull_request(*, lifecycle_event: str, initiative_state: dict[st
     if lifecycle_event == 'initiative_phase_changed' and phase == 'closure-merger':
         return True
     return False
+
+
+LIFECYCLE_PR_COMMENT_EVENTS = {
+    'review_approved',
+    'review_blocked',
+    'remediation_queued',
+    'merge_blocked',
+    'merge_completed',
+}
+
+
+def resolve_lifecycle_comment_target(*, lifecycle_event: str, github_mirror: dict[str, Any]) -> dict[str, Any] | None:
+    issue = github_mirror.get('issue') if isinstance(github_mirror.get('issue'), dict) else None
+    pull_request = github_mirror.get('pullRequest') if isinstance(github_mirror.get('pullRequest'), dict) else None
+    has_pull_request = isinstance(pull_request, dict) and _normalize_number(pull_request.get('number')) is not None
+
+    if has_pull_request and lifecycle_event in LIFECYCLE_PR_COMMENT_EVENTS:
+        return {
+            'kind': 'pull_request',
+            'number': _normalize_number(pull_request.get('number')),
+            'handle': pull_request.get('handle') or pull_request.get('url'),
+        }
+
+    if isinstance(issue, dict):
+        issue_number = _normalize_number(issue.get('number'))
+        if issue_number is not None:
+            return {
+                'kind': 'issue',
+                'number': issue_number,
+                'handle': issue.get('handle') or issue.get('url'),
+            }
+
+    if has_pull_request:
+        return {
+            'kind': 'pull_request',
+            'number': _normalize_number(pull_request.get('number')),
+            'handle': pull_request.get('handle') or pull_request.get('url'),
+        }
+
+    return None
+
+
+def _build_lifecycle_comment_projection(*, lifecycle_event: str, initiative_state: dict[str, Any], summary: str | None = None, queue_item: dict[str, Any] | None = None, result: dict[str, Any] | None = None, blocked_reason: str | None = None) -> dict[str, Any]:
+    queue_item = queue_item if isinstance(queue_item, dict) else {}
+    result = result if isinstance(result, dict) else {}
+    return {
+        'event': lifecycle_event,
+        'phase': clip(initiative_state.get('phase'), 64),
+        'currentSubtaskId': clip(initiative_state.get('currentSubtaskId') or '-', 96),
+        'summary': clip(summary, 240),
+        'queueItemId': clip(queue_item.get('id') or queue_item.get('queueItemId'), 96),
+        'role': clip(queue_item.get('role'), 48),
+        'resultStatus': clip(result.get('status'), 32),
+        'commit': clip(result.get('commit'), 16),
+        'blockedReason': clip(blocked_reason, 240),
+    }
+
+
+def _build_lifecycle_comment_body(payload: dict[str, Any]) -> str:
+    lines = [f"Lifecycle update: {payload.get('event') or 'status_update'}"]
+    summary = payload.get('summary')
+    if summary:
+        lines += ['', str(summary)]
+
+    facts = [
+        _status_line('Phase', payload.get('phase')),
+        _status_line('Current subtask', payload.get('currentSubtaskId')),
+        _status_line('Queue item', payload.get('queueItemId')),
+        _status_line('Role', payload.get('role')),
+        _status_line('Result', payload.get('resultStatus')),
+        _status_line('Commit', payload.get('commit')),
+        _status_line('Blocked reason', payload.get('blockedReason')),
+    ]
+    facts = [line for line in facts if line]
+    if facts:
+        lines += ['', 'Details:']
+        lines.extend(facts)
+    return '\n'.join(lines).strip() + '\n'
+
+
+def _comment_sync_digest(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, sort_keys=True, ensure_ascii=False)
+
+
+def _sync_lifecycle_comment(*, repo_path: str | Path, config: dict[str, Any], github_mirror: dict[str, Any], lifecycle_event: str, initiative_state: dict[str, Any], summary: str | None = None, queue_item: dict[str, Any] | None = None, result: dict[str, Any] | None = None, blocked_reason: str | None = None) -> dict[str, Any] | None:
+    target = resolve_lifecycle_comment_target(lifecycle_event=lifecycle_event, github_mirror=github_mirror)
+    if not target:
+        return None
+
+    comment_payload = _build_lifecycle_comment_projection(
+        lifecycle_event=lifecycle_event,
+        initiative_state=initiative_state,
+        summary=summary,
+        queue_item=queue_item,
+        result=result,
+        blocked_reason=blocked_reason,
+    )
+    digest = _comment_sync_digest(comment_payload)
+    comment_sync = github_mirror.get('commentSync') if isinstance(github_mirror.get('commentSync'), dict) else {}
+    if comment_sync.get('lastDigest') == digest and comment_sync.get('lastTargetKind') == target.get('kind') and comment_sync.get('lastTargetNumber') == target.get('number'):
+        return comment_sync
+
+    now = iso_now()
+    body = _build_lifecycle_comment_body(comment_payload)
+    comment: dict[str, Any] = {
+        'lastAttemptAt': now,
+        'lastEvent': lifecycle_event,
+        'lastDigest': digest,
+        'lastTargetKind': target.get('kind'),
+        'lastTargetNumber': target.get('number'),
+        'lastTargetHandle': target.get('handle'),
+    }
+    github_mirror['commentSync'] = comment
+
+    created = _run_gh(
+        repo_path,
+        config,
+        [
+            'api',
+            f"repos/{config['owner']}/{config['repo']}/issues/{target['number']}/comments",
+            '--method',
+            'POST',
+            '-f',
+            f'body={body}',
+        ],
+    )
+
+    comment['lastSuccessAt'] = now
+    if isinstance(created, dict):
+        comment_id = created.get('id')
+        if isinstance(comment_id, int):
+            comment['lastCommentId'] = str(comment_id)
+        elif isinstance(comment_id, str) and comment_id.strip():
+            comment['lastCommentId'] = comment_id.strip()
+        comment_url = created.get('url')
+        if isinstance(comment_url, str) and comment_url.strip():
+            comment['lastCommentUrl'] = comment_url.strip()
+    github_mirror['commentSync'] = comment
+    return comment
 
 
 def reconcile_remote_pull_request(*, repo_path: str | Path, config: dict[str, Any], initiative_id: str, brief: dict[str, Any], initiative_state: dict[str, Any]) -> dict[str, Any]:
@@ -554,6 +701,27 @@ def sync_lifecycle_issue_update(*, repo_path: str | Path, initiative_state_path:
 
     github_mirror['lastSyncAt'] = now
     _clear_degraded_sync(github_mirror)
+
+    try:
+        _sync_lifecycle_comment(
+            repo_path=repo_root,
+            config=config,
+            github_mirror=github_mirror,
+            lifecycle_event=lifecycle_event,
+            initiative_state=initiative_state,
+            summary=summary,
+            queue_item=queue_item,
+            result=result,
+            blocked_reason=blocked_reason,
+        )
+    except Exception as exc:
+        _record_degraded_sync(
+            github_mirror,
+            now=iso_now(),
+            reason='comment_sync_failed',
+            summary=f'GitHub lifecycle comment sync failed for {lifecycle_event}: {exc}',
+        )
+
     initiative_state['githubMirror'] = github_mirror
     save_json(state_path, initiative_state)
     return github_mirror

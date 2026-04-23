@@ -32,12 +32,23 @@ Project-level configuration location:
 Initiative-local persistence location:
 - persisted GitHub linkage and sync health live under `initiatives/<initiativeId>/state.json` in a compact `githubMirror` block
 - this is initiative-local on purpose: issue/PR linkage belongs to the initiative timeline, not the global queue authority
-- Phase 1 expected persisted fields are:
+- Phase 2 expected persisted fields are:
   - `issue` — optional linked issue summary (`number`, `handle`, `id`, `url`, `state`)
-  - `pullRequest` — optional linked PR summary (`number`, `id`, `url`, `state`, `headRef`, `baseRef`)
+  - `pullRequest` — optional linked PR summary (`number`, `handle`, `id`, `url`, `state`, `headRef`, `baseRef`)
+  - `lifecycle` — optional compact latest lifecycle projection (`event`, `phase`, `currentSubtaskId`, `summary`, `queueItemId`, `role`, `resultStatus`, `commit`, `blockedReason`, `writtenAt`, `digest`)
+  - `commentSync` — optional compact lifecycle-comment sync metadata (`lastAttemptAt`, `lastSuccessAt`, `lastEvent`, `lastDigest`, `lastTargetKind`, `lastTargetNumber`, `lastTargetHandle`, `lastCommentId`, `lastCommentUrl`)
   - `lastSyncAt` — last successful mirror timestamp
   - `degradedSync` — optional degradation record when mirror writes/reads fail non-fatally
     - recommended fields: `status`, `reason`, `firstSeenAt`, `lastSeenAt`, `lastAttemptAt`, `summary`
+
+Lifecycle note routing contract:
+- local initiative state remains authoritative even when GitHub mirroring is enabled
+- body/projection refreshes still target the linked issue
+- lifecycle note comments route deterministically from `lifecycle.event` plus whether a linked PR exists:
+  - `review_approved`, `review_blocked`, `remediation_queued`, `merge_blocked`, `merge_completed` prefer the linked PR
+  - all other lifecycle events prefer the linked issue
+  - if the preferred target is absent, fallback to the linked issue first, then the linked PR when available
+- if comment sync fails, persist `degradedSync` and continue local mechanics flow; failed comment sync is not queue/result authority
 
 Boundary rule:
 - `state.json.initiative` may summarize that mirrored state for operator convenience, but the durable issue/PR linkage and degraded-sync record live in initiative-local state

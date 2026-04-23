@@ -221,10 +221,24 @@ Recommended `githubMirror` shape:
 - `issue` — optional linked issue object
   - recommended fields: `number`, `handle`, `id`, `url`, `state`
 - `pullRequest` — optional linked PR object
-  - recommended fields: `number`, `id`, `url`, `state`, `headRef`, `baseRef`
+  - recommended fields: `number`, `handle`, `id`, `url`, `state`, `headRef`, `baseRef`
+- `lifecycle` — optional compact projection of the latest mirrored lifecycle state
+  - recommended fields: `event`, `phase`, `currentSubtaskId`, `summary`, `queueItemId`, `role`, `resultStatus`, `commit`, `blockedReason`, `writtenAt`, `digest`
+- `commentSync` — optional compact projection of the latest lifecycle-note comment attempt
+  - recommended fields: `lastAttemptAt`, `lastSuccessAt`, `lastEvent`, `lastDigest`, `lastTargetKind`, `lastTargetNumber`, `lastTargetHandle`, `lastCommentId`, `lastCommentUrl`
+  - purpose: persist only enough metadata to dedupe/retry lifecycle-note sync without treating remote comments as local authority
 - `lastSyncAt` — ISO-8601 timestamp for the last successful mirror sync
 - `degradedSync` — optional non-fatal degradation record
   - recommended fields: `status`, `reason`, `summary`, `firstSeenAt`, `lastSeenAt`, `lastAttemptAt`
+
+Lifecycle note routing contract (Phase 2):
+- local initiative state remains authoritative
+- initiative body refresh continues to target the linked issue
+- lifecycle note comments route deterministically from `lifecycle.event` + linked PR presence:
+  - `review_approved`, `review_blocked`, `remediation_queued`, `merge_blocked`, `merge_completed` → linked PR when present
+  - all other lifecycle events → linked issue
+  - if the preferred target is missing, fallback to the linked issue, then linked PR if available
+- lifecycle comment failures should only set `degradedSync`; they must not block local queue/result progression or overwrite the authoritative local lifecycle projection
 
 Interpretation rules:
 - absence of `githubMirror` means no GitHub mirror has been established for the initiative yet
