@@ -274,6 +274,8 @@ LIFECYCLE_SPARSE_COMMENT_EVENTS = {
     'review_approved',
     'review_blocked',
     'remediation_queued',
+    'merge_blocked',
+    'merge_completed',
     'initiative_completed',
     'initiative_blocked',
 }
